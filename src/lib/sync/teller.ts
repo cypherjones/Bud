@@ -3,8 +3,26 @@ import { eq, and } from "drizzle-orm";
 import { newId } from "@/lib/utils/ids";
 import { now } from "@/lib/utils/format";
 import { mapTellerCategory } from "./category-map";
+import { Agent } from "undici";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const TELLER_API_BASE = "https://api.teller.io";
+
+const CERT_DIR = join(process.cwd(), "teller-certs");
+
+let _tlsAgent: Agent | undefined;
+function getTlsAgent(): Agent {
+  if (!_tlsAgent) {
+    _tlsAgent = new Agent({
+      connect: {
+        cert: readFileSync(join(CERT_DIR, "certificate.pem")),
+        key: readFileSync(join(CERT_DIR, "private_key.pem")),
+      },
+    });
+  }
+  return _tlsAgent;
+}
 
 type TellerTransaction = {
   id: string;
@@ -37,7 +55,6 @@ type TellerAccount = {
 };
 
 function getAuthHeader(accessToken: string): HeadersInit {
-  // Teller uses Basic Auth: access token as username, empty password
   const encoded = Buffer.from(`${accessToken}:`).toString("base64");
   return {
     Authorization: `Basic ${encoded}`,
@@ -51,6 +68,8 @@ function getAuthHeader(accessToken: string): HeadersInit {
 export async function fetchTellerAccounts(accessToken: string): Promise<TellerAccount[]> {
   const res = await fetch(`${TELLER_API_BASE}/accounts`, {
     headers: getAuthHeader(accessToken),
+    // @ts-expect-error -- dispatcher is a valid undici option for Node's built-in fetch
+    dispatcher: getTlsAgent(),
   });
 
   if (!res.ok) {
@@ -75,7 +94,11 @@ export async function fetchTellerTransactions(
   if (opts?.endDate) params.set("end_date", opts.endDate);
 
   const url = `${TELLER_API_BASE}/accounts/${accountId}/transactions${params.toString() ? `?${params}` : ""}`;
-  const res = await fetch(url, { headers: getAuthHeader(accessToken) });
+  const res = await fetch(url, {
+    headers: getAuthHeader(accessToken),
+    // @ts-expect-error -- dispatcher is a valid undici option for Node's built-in fetch
+    dispatcher: getTlsAgent(),
+  });
 
   if (!res.ok) {
     throw new Error(`Teller transactions fetch failed: ${res.status}`);
@@ -135,14 +158,11 @@ export async function syncTransactions(accessToken: string): Promise<{
   newTransactions: number;
   updatedTransactions: number;
 }> {
-  const accounts = db
+  // Get all accounts with a Teller account ID (single-user app)
+  const allAccounts = db
     .select()
     .from(schema.accounts)
-    .where(eq(schema.accounts.tellerEnrollmentId, accessToken.substring(0, 20))) // rough match
     .all();
-
-  // Get all accounts if above doesn't work (single user app)
-  const allAccounts = accounts.length > 0 ? accounts : db.select().from(schema.accounts).all();
 
   let newCount = 0;
   let updatedCount = 0;

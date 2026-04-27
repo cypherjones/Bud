@@ -1,22 +1,40 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import Script from "next/script";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { RefreshCw, Link2, CheckCircle } from "lucide-react";
+import { RefreshCw, Link2, CheckCircle, Building2 } from "lucide-react";
+import { apiFetch } from "@/lib/client/api";
+
+declare global {
+  interface Window {
+    TellerConnect: {
+      setup(config: {
+        applicationId: string;
+        products: string[];
+        environment?: string;
+        onSuccess(enrollment: {
+          accessToken: string;
+          enrollment: { id: string; institution: { name: string } };
+        }): void;
+        onExit?(): void;
+      }): { open(): void };
+    };
+  }
+}
 
 export default function SettingsPage() {
-  const [accessToken, setAccessToken] = useState("");
-  const [enrollmentId, setEnrollmentId] = useState("");
   const [isConnected, setIsConnected] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
+  const [sdkReady, setSdkReady] = useState(false);
+  const tellerRef = useRef<{ open(): void } | null>(null);
 
   useEffect(() => {
-    // Check if Teller is configured
-    fetch("/api/settings/teller")
+    apiFetch("/api/settings/teller")
       .then((r) => r.json())
       .then((data) => {
         if (data.connected) setIsConnected(true);
@@ -24,16 +42,44 @@ export default function SettingsPage() {
       .catch(() => {});
   }, []);
 
-  const handleSaveToken = async () => {
-    const res = await fetch("/api/settings/teller", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ access_token: accessToken, enrollment_id: enrollmentId }),
+  const initTellerConnect = () => {
+    if (!window.TellerConnect) return;
+
+    tellerRef.current = window.TellerConnect.setup({
+      applicationId: process.env.NEXT_PUBLIC_TELLER_APPLICATION_ID!,
+      products: ["transactions"],
+      environment: process.env.NEXT_PUBLIC_TELLER_ENVIRONMENT ?? "sandbox",
+      onSuccess: async (enrollment) => {
+        setIsConnecting(true);
+        try {
+          const res = await apiFetch("/api/settings/teller", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              access_token: enrollment.accessToken,
+              enrollment_id: enrollment.enrollment.id,
+            }),
+          });
+          if (res.ok) {
+            setIsConnected(true);
+            // Auto-trigger first sync
+            handleSync();
+          }
+        } finally {
+          setIsConnecting(false);
+        }
+      },
+      onExit: () => {
+        setIsConnecting(false);
+      },
     });
-    if (res.ok) {
-      setIsConnected(true);
-      setAccessToken("");
-      setEnrollmentId("");
+
+    setSdkReady(true);
+  };
+
+  const handleConnectBank = () => {
+    if (tellerRef.current) {
+      tellerRef.current.open();
     }
   };
 
@@ -41,7 +87,7 @@ export default function SettingsPage() {
     setIsSyncing(true);
     setSyncResult(null);
     try {
-      const res = await fetch("/api/sync", { method: "POST" });
+      const res = await apiFetch("/api/sync", { method: "POST" });
       const data = await res.json();
       if (res.ok) {
         setSyncResult(
@@ -58,6 +104,12 @@ export default function SettingsPage() {
 
   return (
     <div className="flex flex-col h-screen">
+      <Script
+        src="https://cdn.teller.io/connect/connect.js"
+        strategy="lazyOnload"
+        onReady={initTellerConnect}
+      />
+
       <header className="px-8 py-6 border-b border-border bg-card/50">
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
         <p className="text-sm text-muted-foreground">
@@ -67,13 +119,12 @@ export default function SettingsPage() {
 
       <div className="flex-1 overflow-auto p-8">
         <div className="max-w-2xl space-y-6">
-          {/* Teller Connection */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
                   <Link2 className="w-4 h-4 text-primary" />
-                  Bank Connection (Teller)
+                  Bank Connection
                 </CardTitle>
                 {isConnected && (
                   <Badge variant="secondary" className="bg-green-100 text-green-700">
@@ -87,43 +138,26 @@ export default function SettingsPage() {
               {!isConnected ? (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    Connect your bank via Teller to automatically sync
-                    transactions. You&apos;ll need your Teller access token from
-                    the enrollment process.
+                    Securely connect your bank to automatically import
+                    transactions. Your credentials are handled directly by Teller
+                    and never touch our servers.
                   </p>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="text-sm font-medium">Access Token</label>
-                      <Input
-                        type="password"
-                        placeholder="token_xxx..."
-                        value={accessToken}
-                        onChange={(e) => setAccessToken(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium">
-                        Enrollment ID
-                      </label>
-                      <Input
-                        placeholder="enr_xxx..."
-                        value={enrollmentId}
-                        onChange={(e) => setEnrollmentId(e.target.value)}
-                      />
-                    </div>
-                    <Button
-                      onClick={handleSaveToken}
-                      disabled={!accessToken}
-                    >
-                      Save & Connect
-                    </Button>
-                  </div>
+                  <Button
+                    onClick={handleConnectBank}
+                    disabled={!sdkReady || isConnecting}
+                  >
+                    <Building2 className="w-4 h-4 mr-2" />
+                    {isConnecting
+                      ? "Connecting..."
+                      : sdkReady
+                        ? "Connect Bank"
+                        : "Loading..."}
+                  </Button>
                 </>
               ) : (
                 <div className="space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    Your bank is connected. Transactions sync automatically
-                    every 6 hours, or sync manually below.
+                    Your bank is connected. Sync your latest transactions below.
                   </p>
                   <div className="flex items-center gap-3">
                     <Button

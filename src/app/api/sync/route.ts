@@ -1,11 +1,19 @@
 import { syncAccounts, syncTransactions } from "@/lib/sync/teller";
 import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
+import { decrypt } from "@/lib/utils/crypto";
+import { authenticateRequest, unauthorizedResponse } from "@/lib/auth";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  // Get Teller access token from settings
+  if (!authenticateRequest(req)) return unauthorizedResponse();
+
+  const rateLimited = checkRateLimit(req);
+  if (rateLimited) return rateLimited;
+
+  // Get encrypted Teller access token from settings
   const tokenSetting = db
     .select()
     .from(schema.settings)
@@ -19,23 +27,40 @@ export async function POST(req: Request) {
     );
   }
 
-  const accessToken = JSON.parse(tokenSetting.value) as string;
+  let accessToken: string;
+  try {
+    accessToken = decrypt(tokenSetting.value);
+  } catch {
+    // Handle legacy unencrypted values (pre-migration)
+    try {
+      accessToken = JSON.parse(tokenSetting.value) as string;
+    } catch {
+      return Response.json({ error: "Failed to decrypt access token" }, { status: 500 });
+    }
+  }
 
   try {
-    // Sync accounts first
+    // Get enrollment ID
     const enrollmentSetting = db
       .select()
       .from(schema.settings)
       .where(eq(schema.settings.key, "teller_enrollment_id"))
       .get();
 
-    const enrollmentId = enrollmentSetting
-      ? (JSON.parse(enrollmentSetting.value) as string)
-      : "";
+    let enrollmentId = "";
+    if (enrollmentSetting) {
+      try {
+        enrollmentId = decrypt(enrollmentSetting.value);
+      } catch {
+        try {
+          enrollmentId = JSON.parse(enrollmentSetting.value) as string;
+        } catch {
+          enrollmentId = "";
+        }
+      }
+    }
 
     const newAccounts = await syncAccounts(accessToken, enrollmentId);
-
-    // Then sync transactions
     const { newTransactions, updatedTransactions } = await syncTransactions(accessToken);
 
     return Response.json({
@@ -45,8 +70,7 @@ export async function POST(req: Request) {
       updated_transactions: updatedTransactions,
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Sync failed";
     console.error("Sync error:", error);
-    return Response.json({ error: message }, { status: 500 });
+    return Response.json({ error: "Sync failed" }, { status: 500 });
   }
 }

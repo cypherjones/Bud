@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { apiFetch } from "@/lib/client/api";
 
 export type Message = {
   id: string;
@@ -16,7 +17,7 @@ export function useChat() {
 
   // Load chat history on mount
   useEffect(() => {
-    fetch("/api/chat")
+    apiFetch("/api/chat")
       .then((res) => res.json())
       .then((data) => {
         if (data.messages) {
@@ -49,7 +50,7 @@ export function useChat() {
       setIsLoading(true);
 
       try {
-        const res = await fetch("/api/chat", {
+        const res = await apiFetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -85,7 +86,7 @@ export function useChat() {
           {
             id: (Date.now() + 1).toString(),
             role: "assistant",
-            content: `Error: ${message}. Make sure your ANTHROPIC_API_KEY is set in .env.local.`,
+            content: `Something went wrong. Please try again.`,
           },
         ]);
       } finally {

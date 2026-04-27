@@ -5,6 +5,8 @@ import { handleToolCall } from "@/lib/ai/tool-handlers";
 import { db, schema } from "@/lib/db";
 import { newId } from "@/lib/utils/ids";
 import { now } from "@/lib/utils/format";
+import { authenticateRequest, unauthorizedResponse } from "@/lib/auth";
+import { checkRateLimit } from "@/lib/rate-limit";
 import type Anthropic from "@anthropic-ai/sdk";
 
 export const runtime = "nodejs";
@@ -16,6 +18,11 @@ type ChatMessage = {
 };
 
 export async function POST(req: Request) {
+  if (!authenticateRequest(req)) return unauthorizedResponse();
+
+  const rateLimited = checkRateLimit(req);
+  if (rateLimited) return rateLimited;
+
   const { messages } = (await req.json()) as { messages: ChatMessage[] };
 
   if (!messages || messages.length === 0) {
@@ -137,13 +144,16 @@ export async function POST(req: Request) {
     });
   } catch (error: unknown) {
     console.error("Chat API error:", error);
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
+    return Response.json({ error: "Something went wrong" }, { status: 500 });
   }
 }
 
 // GET: Load chat history
-export async function GET() {
+export async function GET(req: Request) {
+  if (!authenticateRequest(req)) return unauthorizedResponse();
+
+  const rateLimited = checkRateLimit(req);
+  if (rateLimited) return rateLimited;
   const messages = db
     .select()
     .from(schema.chatMessages)

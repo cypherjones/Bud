@@ -23,6 +23,8 @@
 # misc
 .DS_Store
 *.pem
+/teller-certs/
+teller.zip
 
 # debug
 npm-debug.log*
