@@ -1,0 +1,3 @@
+setup:
+  project: bud-budget-app
+  config: dev

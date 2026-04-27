@@ -1,0 +1,229 @@
+import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+
+// ============================================================
+// CORE TABLES
+// ============================================================
+
+export const categories = sqliteTable("categories", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  icon: text("icon"), // emoji
+  color: text("color"), // hex color for charts
+  isSystem: integer("is_system", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull(),
+});
+
+export const accounts = sqliteTable("accounts", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(), // "Chase Checking"
+  institution: text("institution").notNull(), // "Chase"
+  accountType: text("account_type").notNull(), // "depository" | "credit"
+  subtype: text("subtype"), // "checking" | "savings" | "credit_card"
+  lastFour: text("last_four"),
+  currency: text("currency").notNull().default("USD"),
+  tellerAccountId: text("teller_account_id"), // external ID from Teller
+  tellerEnrollmentId: text("teller_enrollment_id"),
+  lastSynced: text("last_synced"),
+  createdAt: text("created_at").notNull(),
+});
+
+export const transactions = sqliteTable("transactions", {
+  id: text("id").primaryKey(),
+  accountId: text("account_id").references(() => accounts.id),
+  amount: integer("amount").notNull(), // cents, positive = expense, negative = income
+  type: text("type").notNull(), // "expense" | "income"
+  description: text("description").notNull(), // raw bank description
+  merchant: text("merchant"), // normalized merchant name (from Teller counterparty)
+  categoryId: text("category_id").references(() => categories.id),
+  date: text("date").notNull(), // ISO 8601 YYYY-MM-DD
+  status: text("status").notNull().default("posted"), // "posted" | "pending"
+  bankTransactionId: text("bank_transaction_id"), // Teller transaction ID for dedup
+  isRecurring: integer("is_recurring", { mode: "boolean" }).notNull().default(false),
+  createdAt: text("created_at").notNull(),
+});
+
+export const budgets = sqliteTable("budgets", {
+  id: text("id").primaryKey(),
+  categoryId: text("category_id").references(() => categories.id),
+  amount: integer("amount").notNull(), // cents
+  period: text("period").notNull().default("monthly"), // "monthly" | "weekly"
+  createdAt: text("created_at").notNull(),
+});
+
+export const recurringTransactions = sqliteTable("recurring_transactions", {
+  id: text("id").primaryKey(),
+  merchant: text("merchant").notNull(),
+  amount: integer("amount").notNull(), // cents (approximate)
+  frequency: text("frequency").notNull(), // "monthly" | "weekly" | "biweekly" | "yearly"
+  categoryId: text("category_id").references(() => categories.id),
+  accountId: text("account_id").references(() => accounts.id),
+  nextDueDate: text("next_due_date"),
+  lastSeenDate: text("last_seen_date"),
+  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull(),
+});
+
+export const chatMessages = sqliteTable("chat_messages", {
+  id: text("id").primaryKey(),
+  role: text("role").notNull(), // "user" | "assistant"
+  content: text("content").notNull(),
+  toolCalls: text("tool_calls"), // JSON string of tool calls/results
+  createdAt: text("created_at").notNull(),
+});
+
+export const settings = sqliteTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(), // JSON string
+  updatedAt: text("updated_at").notNull(),
+});
+
+// ============================================================
+// FINANCIAL PLANNING TABLES
+// ============================================================
+
+export const financialPlans = sqliteTable("financial_plans", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  type: text("type").notNull(), // "move" | "debt_payoff" | "savings_goal" | "custom"
+  status: text("status").notNull().default("planning"), // "planning" | "in_progress" | "completed" | "paused"
+  targetDate: text("target_date"),
+  targetAmount: integer("target_amount"), // cents
+  currentSaved: integer("current_saved").notNull().default(0), // cents
+  notes: text("notes"), // JSON
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const planLineItems = sqliteTable("plan_line_items", {
+  id: text("id").primaryKey(),
+  planId: text("plan_id").notNull().references(() => financialPlans.id),
+  category: text("category").notNull(), // "housing" | "moving_logistics" | "utilities" | "furniture" | "emergency"
+  name: text("name").notNull(),
+  estimatedAmount: integer("estimated_amount"), // cents
+  actualAmount: integer("actual_amount"), // cents
+  isPaid: integer("is_paid", { mode: "boolean" }).notNull().default(false),
+  isRequired: integer("is_required", { mode: "boolean" }).notNull().default(true),
+  dueDate: text("due_date"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  notes: text("notes"),
+  createdAt: text("created_at").notNull(),
+});
+
+// ============================================================
+// DEBT TRACKING
+// ============================================================
+
+export const debts = sqliteTable("debts", {
+  id: text("id").primaryKey(),
+  creditorName: text("creditor_name").notNull(),
+  type: text("type").notNull(), // "credit_card" | "personal_loan" | "student_loan" | "auto_loan" | "medical" | "tax_debt" | "other"
+  originalBalance: integer("original_balance").notNull(), // cents
+  currentBalance: integer("current_balance").notNull(), // cents
+  interestRate: real("interest_rate").notNull(), // annual rate as decimal (0.2199 = 21.99%)
+  minimumPayment: integer("minimum_payment").notNull(), // cents
+  dueDay: integer("due_day"), // day of month 1-31
+  creditLimit: integer("credit_limit"), // cents — for utilization calc on revolving debt
+  status: text("status").notNull().default("active"), // "active" | "paid_off" | "in_collections" | "deferred"
+  notes: text("notes"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const debtPayments = sqliteTable("debt_payments", {
+  id: text("id").primaryKey(),
+  debtId: text("debt_id").notNull().references(() => debts.id),
+  amount: integer("amount").notNull(), // cents
+  date: text("date").notNull(), // ISO date
+  type: text("type").notNull(), // "minimum" | "extra" | "lump_sum"
+  newBalance: integer("new_balance").notNull(), // cents — balance after payment
+  notes: text("notes"),
+  createdAt: text("created_at").notNull(),
+});
+
+export const debtAllocations = sqliteTable("debt_allocations", {
+  id: text("id").primaryKey(),
+  month: text("month").notNull(), // "YYYY-MM"
+  debtId: text("debt_id").notNull().references(() => debts.id),
+  recommendedAmount: integer("recommended_amount").notNull(), // cents
+  actualAmount: integer("actual_amount"), // cents — filled in after the fact
+  reasoning: text("reasoning"), // why this allocation
+  createdAt: text("created_at").notNull(),
+});
+
+// ============================================================
+// TAX TRACKING
+// ============================================================
+
+export const taxObligations = sqliteTable("tax_obligations", {
+  id: text("id").primaryKey(),
+  type: text("type").notNull(), // "federal_income" | "state_income" | "back_taxes" | "estimated_quarterly" | "penalty" | "other"
+  taxYear: integer("tax_year").notNull(),
+  originalAmount: integer("original_amount").notNull(), // cents
+  remainingBalance: integer("remaining_balance").notNull(), // cents
+  dueDate: text("due_date"),
+  isInstallmentPlan: integer("is_installment_plan", { mode: "boolean" }).notNull().default(false),
+  installmentAmount: integer("installment_amount"), // cents per month
+  installmentDay: integer("installment_day"), // day of month
+  penaltyRate: real("penalty_rate"), // annual rate (IRS ~8%)
+  agency: text("agency").notNull(), // "IRS" | "Texas Comptroller" | etc.
+  referenceNumber: text("reference_number"),
+  status: text("status").notNull().default("active"), // "upcoming" | "active" | "paid" | "overdue"
+  notes: text("notes"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const taxPayments = sqliteTable("tax_payments", {
+  id: text("id").primaryKey(),
+  obligationId: text("obligation_id").notNull().references(() => taxObligations.id),
+  amount: integer("amount").notNull(), // cents
+  date: text("date").notNull(),
+  confirmationNumber: text("confirmation_number"),
+  method: text("method"), // "direct_pay" | "eftps" | "check" | "payroll_deduction"
+  notes: text("notes"),
+  createdAt: text("created_at").notNull(),
+});
+
+// ============================================================
+// CREDIT SCORE TRACKING
+// ============================================================
+
+export const creditScores = sqliteTable("credit_scores", {
+  id: text("id").primaryKey(),
+  score: integer("score").notNull(), // 300-850
+  bureau: text("bureau"), // "equifax" | "experian" | "transunion" | "fico" | "vantage"
+  source: text("source"), // "Credit Karma" | "bank app" | etc.
+  date: text("date").notNull(),
+  notes: text("notes"),
+  createdAt: text("created_at").notNull(),
+});
+
+export const creditFactors = sqliteTable("credit_factors", {
+  id: text("id").primaryKey(),
+  scoreId: text("score_id").notNull().references(() => creditScores.id),
+  utilizationRatio: real("utilization_ratio"), // 0.0 to 1.0
+  onTimePayments: integer("on_time_payments"), // consecutive months
+  totalAccounts: integer("total_accounts"),
+  hardInquiries: integer("hard_inquiries"), // last 2 years
+  oldestAccountMonths: integer("oldest_account_months"),
+  derogatoryMarks: integer("derogatory_marks"),
+  totalBalance: integer("total_balance"), // cents
+  totalCreditLimit: integer("total_credit_limit"), // cents
+  notes: text("notes"),
+  createdAt: text("created_at").notNull(),
+});
+
+// ============================================================
+// SAVINGS GOALS
+// ============================================================
+
+export const savingsGoals = sqliteTable("savings_goals", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  targetAmount: integer("target_amount").notNull(), // cents
+  currentAmount: integer("current_amount").notNull().default(0), // cents
+  targetDate: text("target_date"),
+  notes: text("notes"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
