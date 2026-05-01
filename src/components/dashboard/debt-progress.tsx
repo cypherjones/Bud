@@ -17,9 +17,11 @@ type Props = {
   totalActive: number;
   totalOriginal: number;
   progress: number;
+  monthRecommended?: number;
+  monthActual?: number;
 };
 
-export function DebtProgress({ debts, totalActive, totalOriginal, progress }: Props) {
+export function DebtProgress({ debts, totalActive, totalOriginal, progress, monthRecommended = 0, monthActual = 0 }: Props) {
   if (debts.length === 0) {
     return (
       <Card>
@@ -52,6 +54,44 @@ export function DebtProgress({ debts, totalActive, totalOriginal, progress }: Pr
           </div>
           <Progress value={progress} className="h-3" />
         </div>
+
+        {/* This-month progress against the smart-allocation plan */}
+        {monthRecommended > 0 && (
+          <div className="rounded-md bg-muted/40 px-3 py-2 space-y-1.5">
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">This month vs. plan</span>
+              <span
+                className={`font-medium ${
+                  monthActual >= monthRecommended
+                    ? "text-emerald-400"
+                    : monthActual >= monthRecommended * 0.85
+                      ? "text-amber-400"
+                      : "text-red-400"
+                }`}
+              >
+                {monthRecommended > 0 ? Math.round((monthActual / monthRecommended) * 100) : 0}%
+              </span>
+            </div>
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+              <div
+                className={`h-full ${
+                  monthActual >= monthRecommended
+                    ? "bg-emerald-500"
+                    : monthActual >= monthRecommended * 0.85
+                      ? "bg-amber-500"
+                      : "bg-red-500"
+                }`}
+                style={{
+                  width: `${Math.min(100, monthRecommended > 0 ? (monthActual / monthRecommended) * 100 : 0)}%`,
+                }}
+              />
+            </div>
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>{formatCurrency(monthActual)} paid</span>
+              <span>of {formatCurrency(monthRecommended)} recommended</span>
+            </div>
+          </div>
+        )}
 
         {/* Individual debts */}
         <div className="space-y-3 pt-2">

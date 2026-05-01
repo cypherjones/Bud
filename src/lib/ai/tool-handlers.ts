@@ -3,6 +3,8 @@ import { eq, like, and, gte, lte, desc, sql } from "drizzle-orm";
 import { newId } from "@/lib/utils/ids";
 import { now, today, formatCurrency, parseDollarsToCents } from "@/lib/utils/format";
 import { calculateDebtAllocation } from "@/lib/utils/debt-engine";
+import { createTransaction, findAccountByQuery } from "@/lib/actions/transactions";
+import { getMonthlyAllocationVsActual } from "@/lib/actions/debts";
 
 type ToolInput = Record<string, unknown>;
 
@@ -13,6 +15,8 @@ export async function handleToolCall(
   switch (toolName) {
     case "get_financial_overview":
       return handleGetFinancialOverview();
+    case "add_transaction":
+      return handleAddTransaction(input);
     case "search_transactions":
       return handleSearchTransactions(input);
     case "get_spending_summary":
@@ -27,6 +31,8 @@ export async function handleToolCall(
       return handleLogDebtPayment(input);
     case "get_debt_allocation":
       return handleGetDebtAllocation(input);
+    case "summarize_debt_month":
+      return handleSummarizeDebtMonth(input);
     case "create_financial_plan":
       return handleCreateFinancialPlan(input);
     case "add_plan_line_item":
@@ -43,6 +49,10 @@ export async function handleToolCall(
       return handleLogTaxPayment(input);
     case "log_credit_score":
       return handleLogCreditScore(input);
+    case "create_savings_goal":
+      return handleCreateSavingsGoal(input);
+    case "update_savings_goal":
+      return handleUpdateSavingsGoal(input);
     default:
       return JSON.stringify({ error: `Unknown tool: ${toolName}` });
   }
@@ -71,7 +81,13 @@ function handleGetFinancialOverview(): string {
     .get();
 
   return JSON.stringify({
-    accounts: accounts.map((a) => ({ name: a.name, institution: a.institution, type: a.subtype })),
+    accounts: accounts.map((a) => ({
+      name: a.name,
+      institution: a.institution,
+      type: a.subtype,
+      last_four: a.lastFour,
+      balance: a.balance != null ? formatCurrency(a.balance) : "unknown",
+    })),
     this_month: {
       spending: formatCurrency(monthlySpending?.total ?? 0),
       income: formatCurrency(monthlyIncome?.total ?? 0),
@@ -110,6 +126,52 @@ function handleGetFinancialOverview(): string {
       target: formatCurrency(g.targetAmount),
       target_date: g.targetDate,
     })),
+  });
+}
+
+function handleAddTransaction(input: ToolInput): string {
+  const accountQuery = input.account as string | undefined;
+  if (!accountQuery) return JSON.stringify({ error: "account is required" });
+
+  const account = findAccountByQuery(accountQuery);
+  if (!account) {
+    return JSON.stringify({ error: `No account matched "${accountQuery}". Try the account name or last-four digits.` });
+  }
+
+  let categoryId: string | undefined;
+  if (input.category) {
+    const cat = db.select().from(schema.categories).where(like(schema.categories.name, `%${input.category as string}%`)).get();
+    if (!cat) return JSON.stringify({ error: `Category "${input.category}" not found` });
+    categoryId = cat.id;
+  }
+
+  // Default placeholder=true when account is Teller-connected and date is within 14 days.
+  const date = (input.date as string | undefined) ?? today();
+  const isRecent = Math.abs((Date.now() - new Date(date).getTime()) / 86400000) <= 14;
+  const placeholderDefault = !!account.tellerAccountId && isRecent;
+  const placeholder = (input.placeholder as boolean | undefined) ?? placeholderDefault;
+
+  const result = createTransaction({
+    accountId: account.id,
+    amount: input.amount as number,
+    type: input.type as "income" | "expense",
+    description: input.description as string,
+    date,
+    categoryId,
+    placeholder,
+    placeholderTtlDays: input.placeholder_ttl_days as number | undefined,
+  });
+
+  if (!result.success) return JSON.stringify({ error: result.error });
+
+  const amountFmt = formatCurrency(parseDollarsToCents(input.amount as number));
+  const placeholderNote = placeholder
+    ? " (placeholder — will auto-resolve when Teller syncs the matching transaction)"
+    : "";
+  return JSON.stringify({
+    success: true,
+    id: result.id,
+    message: `Added ${input.type} of ${amountFmt} on ${account.name} for ${date}${placeholderNote}`,
   });
 }
 
@@ -357,6 +419,61 @@ function handleGetDebtAllocation(input: ToolInput): string {
 
   const allocation = calculateDebtAllocation(debts, monthlyBudget, movePlan ?? undefined);
   return JSON.stringify(allocation);
+}
+
+function handleSummarizeDebtMonth(input: ToolInput): string {
+  const month = (input.month as string | undefined) ?? undefined;
+  const summary = getMonthlyAllocationVsActual(month);
+
+  if (summary.rows.length === 0) {
+    return JSON.stringify({
+      month: summary.month,
+      message: "No active debts on file for this month.",
+    });
+  }
+
+  // Build per-debt narrations + aggregate sentence
+  const rows = summary.rows.map((r) => {
+    const recommended = r.recommended;
+    const actual = r.actualPaid;
+    const delta = actual - recommended;
+    let narration: string;
+    if (r.status === "no_plan") {
+      narration = `${r.creditorName}: no allocation row for ${summary.month}.`;
+    } else if (r.status === "ahead") {
+      narration = `${r.creditorName}: ${formatCurrency(actual)} paid (${r.paymentCount} payments) — ${formatCurrency(delta)} above the ${formatCurrency(recommended)} recommended.`;
+    } else if (r.status === "on_track") {
+      narration = `${r.creditorName}: ${formatCurrency(actual)} paid (${r.paymentCount} payments) — within 15% of the ${formatCurrency(recommended)} recommended.`;
+    } else {
+      narration = `${r.creditorName}: ${formatCurrency(actual)} paid (${r.paymentCount} payments) — ${formatCurrency(Math.abs(delta))} short of the ${formatCurrency(recommended)} recommended.`;
+    }
+    return {
+      debtId: r.debtId,
+      creditor: r.creditorName,
+      recommended: formatCurrency(recommended),
+      actual: formatCurrency(actual),
+      delta_cents: delta,
+      payment_count: r.paymentCount,
+      status: r.status,
+      narration,
+    };
+  });
+
+  const totalDelta = summary.totalActual - summary.totalRecommended;
+  const aggregate =
+    summary.totalRecommended === 0
+      ? `You've put ${formatCurrency(summary.totalActual)} toward debt this month.`
+      : totalDelta >= 0
+        ? `You've put ${formatCurrency(summary.totalActual)} toward debt this month, ${formatCurrency(totalDelta)} above the ${formatCurrency(summary.totalRecommended)} recommended.`
+        : `You've put ${formatCurrency(summary.totalActual)} toward debt this month, ${formatCurrency(Math.abs(totalDelta))} short of the ${formatCurrency(summary.totalRecommended)} recommended.`;
+
+  return JSON.stringify({
+    month: summary.month,
+    total_recommended: formatCurrency(summary.totalRecommended),
+    total_actual: formatCurrency(summary.totalActual),
+    aggregate_narration: aggregate,
+    rows,
+  });
 }
 
 // === FINANCIAL PLAN HANDLERS ===
@@ -612,6 +729,79 @@ function handleLogCreditScore(input: ToolInput): string {
   }
 
   return JSON.stringify(result);
+}
+
+// === SAVINGS GOAL HANDLERS ===
+
+function handleCreateSavingsGoal(input: ToolInput): string {
+  const name = input.name as string;
+  const targetAmount = parseDollarsToCents(input.target_amount as number);
+  const currentAmount = input.current_amount ? parseDollarsToCents(input.current_amount as number) : 0;
+  const targetDate = (input.target_date as string) || null;
+
+  const id = newId();
+  db.insert(schema.savingsGoals)
+    .values({
+      id,
+      name,
+      targetAmount,
+      currentAmount,
+      targetDate,
+      createdAt: now(),
+      updatedAt: now(),
+    })
+    .run();
+
+  return JSON.stringify({
+    success: true,
+    goal: name,
+    target: formatCurrency(targetAmount),
+    saved: formatCurrency(currentAmount),
+    target_date: targetDate,
+  });
+}
+
+function handleUpdateSavingsGoal(input: ToolInput): string {
+  const name = input.name as string;
+
+  const goal = db
+    .select()
+    .from(schema.savingsGoals)
+    .where(like(schema.savingsGoals.name, `%${name}%`))
+    .get();
+
+  if (!goal) {
+    return JSON.stringify({ error: `No savings goal found matching "${name}"` });
+  }
+
+  const updates: Partial<{ currentAmount: number; targetAmount: number; targetDate: string | null; updatedAt: string }> = {
+    updatedAt: now(),
+  };
+
+  if (input.add_amount) {
+    updates.currentAmount = goal.currentAmount + parseDollarsToCents(input.add_amount as number);
+  }
+  if (input.target_amount) {
+    updates.targetAmount = parseDollarsToCents(input.target_amount as number);
+  }
+  if (input.target_date) {
+    updates.targetDate = input.target_date as string;
+  }
+
+  db.update(schema.savingsGoals)
+    .set(updates)
+    .where(eq(schema.savingsGoals.id, goal.id))
+    .run();
+
+  const updated = db.select().from(schema.savingsGoals).where(eq(schema.savingsGoals.id, goal.id)).get()!;
+
+  return JSON.stringify({
+    success: true,
+    goal: updated.name,
+    target: formatCurrency(updated.targetAmount),
+    saved: formatCurrency(updated.currentAmount),
+    progress: `${Math.round((updated.currentAmount / updated.targetAmount) * 100)}%`,
+  });
 }
 
 // === HELPERS ===

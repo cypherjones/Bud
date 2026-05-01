@@ -1,52 +1,62 @@
 import { syncAccounts, syncTransactions } from "@/lib/sync/teller";
 import { db, schema } from "@/lib/db";
-import { eq } from "drizzle-orm";
+import { decrypt } from "@/lib/utils/crypto";
+import { authenticateRequest, unauthorizedResponse } from "@/lib/auth";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  // Get Teller access token from settings
-  const tokenSetting = db
-    .select()
-    .from(schema.settings)
-    .where(eq(schema.settings.key, "teller_access_token"))
-    .get();
+  if (!authenticateRequest(req)) return unauthorizedResponse();
 
-  if (!tokenSetting) {
+  const rateLimited = checkRateLimit(req);
+  if (rateLimited) return rateLimited;
+
+  const enrollments = db.select().from(schema.tellerEnrollments).all();
+
+  if (enrollments.length === 0) {
     return Response.json(
-      { error: "No Teller access token configured. Connect your bank first." },
+      { error: "No bank connections configured. Connect a bank first." },
       { status: 400 }
     );
   }
 
-  const accessToken = JSON.parse(tokenSetting.value) as string;
+  let totalNewAccounts = 0;
+  let totalNewTransactions = 0;
+  let totalUpdatedTransactions = 0;
+  let totalResolvedPlaceholders = 0;
+  const errors: string[] = [];
 
-  try {
-    // Sync accounts first
-    const enrollmentSetting = db
-      .select()
-      .from(schema.settings)
-      .where(eq(schema.settings.key, "teller_enrollment_id"))
-      .get();
+  for (const enrollment of enrollments) {
+    let accessToken: string;
+    try {
+      accessToken = decrypt(enrollment.accessToken);
+    } catch {
+      errors.push(`Failed to decrypt token for ${enrollment.institution}`);
+      continue;
+    }
 
-    const enrollmentId = enrollmentSetting
-      ? (JSON.parse(enrollmentSetting.value) as string)
-      : "";
+    try {
+      const newAccounts = await syncAccounts(accessToken, enrollment.enrollmentId);
+      const { newTransactions, updatedTransactions, resolvedPlaceholders } = await syncTransactions(accessToken, enrollment.enrollmentId);
 
-    const newAccounts = await syncAccounts(accessToken, enrollmentId);
-
-    // Then sync transactions
-    const { newTransactions, updatedTransactions } = await syncTransactions(accessToken);
-
-    return Response.json({
-      success: true,
-      new_accounts: newAccounts,
-      new_transactions: newTransactions,
-      updated_transactions: updatedTransactions,
-    });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Sync failed";
-    console.error("Sync error:", error);
-    return Response.json({ error: message }, { status: 500 });
+      totalNewAccounts += newAccounts;
+      totalNewTransactions += newTransactions;
+      totalUpdatedTransactions += updatedTransactions;
+      totalResolvedPlaceholders += resolvedPlaceholders;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      console.error(`Sync error for ${enrollment.institution}:`, error);
+      errors.push(`${enrollment.institution}: ${message}`);
+    }
   }
+
+  return Response.json({
+    success: errors.length === 0,
+    new_accounts: totalNewAccounts,
+    new_transactions: totalNewTransactions,
+    updated_transactions: totalUpdatedTransactions,
+    resolved_placeholders: totalResolvedPlaceholders,
+    errors: errors.length > 0 ? errors : undefined,
+  });
 }
