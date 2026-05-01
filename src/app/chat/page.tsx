@@ -3,29 +3,26 @@
 import { useRef, useEffect } from "react";
 import { ChatInput } from "@/components/chat/chat-input";
 import { MessageBubble } from "@/components/chat/message-bubble";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useChat } from "@/hooks/use-chat";
 
 export default function ChatPage() {
   const { messages, isLoading, sendMessage } = useChat();
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
 
   return (
     <div className="flex flex-col h-screen">
-      <header className="px-8 py-6 border-b border-border bg-card/50">
+      <header className="px-8 py-6 border-b border-border bg-card/50 shrink-0">
         <h1 className="text-2xl font-bold tracking-tight">Chat with Bud</h1>
         <p className="text-sm text-muted-foreground">
           Your financial strategist
         </p>
       </header>
 
-      <ScrollArea className="flex-1 px-8 py-4" ref={scrollRef}>
+      <div className="flex-1 overflow-y-auto px-8 py-4">
         <div className="max-w-3xl mx-auto space-y-4">
           {messages.length === 0 && !isLoading && (
             <div className="text-center py-20 text-muted-foreground">
@@ -52,12 +49,13 @@ export default function ChatPage() {
               Thinking...
             </div>
           )}
+          <div ref={bottomRef} />
         </div>
-      </ScrollArea>
+      </div>
 
-      <div className="border-t border-border bg-card px-8 py-4">
+      <div className="border-t border-border bg-card px-8 py-4 shrink-0">
         <div className="max-w-3xl mx-auto">
-          <ChatInput onSend={sendMessage} disabled={isLoading} />
+          <ChatInput onSend={(msg, attachments) => sendMessage(msg, attachments)} disabled={isLoading} />
         </div>
       </div>
     </div>
