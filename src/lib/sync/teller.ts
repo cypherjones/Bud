@@ -3,7 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { newId } from "@/lib/utils/ids";
 import { now } from "@/lib/utils/format";
 import { mapTellerCategory } from "./category-map";
-import { Agent } from "undici";
+import { Agent, fetch as undiciFetch } from "undici";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -22,6 +22,14 @@ function getTlsAgent(): Agent {
     });
   }
   return _tlsAgent;
+}
+
+/** Fetch with mTLS client certificate */
+function tellerFetch(url: string, headers: HeadersInit) {
+  return undiciFetch(url, {
+    headers,
+    dispatcher: getTlsAgent(),
+  });
 }
 
 type TellerTransaction = {
@@ -66,17 +74,13 @@ function getAuthHeader(accessToken: string): HeadersInit {
  * Fetch all accounts for an enrollment
  */
 export async function fetchTellerAccounts(accessToken: string): Promise<TellerAccount[]> {
-  const res = await fetch(`${TELLER_API_BASE}/accounts`, {
-    headers: getAuthHeader(accessToken),
-    // @ts-expect-error -- dispatcher is a valid undici option for Node's built-in fetch
-    dispatcher: getTlsAgent(),
-  });
+  const res = await tellerFetch(`${TELLER_API_BASE}/accounts`, getAuthHeader(accessToken));
 
   if (!res.ok) {
     throw new Error(`Teller accounts fetch failed: ${res.status} ${res.statusText}`);
   }
 
-  return res.json();
+  return res.json() as Promise<TellerAccount[]>;
 }
 
 /**
@@ -94,17 +98,26 @@ export async function fetchTellerTransactions(
   if (opts?.endDate) params.set("end_date", opts.endDate);
 
   const url = `${TELLER_API_BASE}/accounts/${accountId}/transactions${params.toString() ? `?${params}` : ""}`;
-  const res = await fetch(url, {
-    headers: getAuthHeader(accessToken),
-    // @ts-expect-error -- dispatcher is a valid undici option for Node's built-in fetch
-    dispatcher: getTlsAgent(),
-  });
+  const res = await tellerFetch(url, getAuthHeader(accessToken));
 
   if (!res.ok) {
     throw new Error(`Teller transactions fetch failed: ${res.status}`);
   }
 
-  return res.json();
+  return res.json() as Promise<TellerTransaction[]>;
+}
+
+/** Fetch balance for a specific account */
+async function fetchTellerBalance(accessToken: string, accountId: string): Promise<number | null> {
+  try {
+    const res = await tellerFetch(`${TELLER_API_BASE}/accounts/${accountId}/balances`, getAuthHeader(accessToken));
+    if (!res.ok) return null;
+    const data = await res.json() as { available?: string; ledger?: string };
+    const balance = parseFloat(data.available ?? data.ledger ?? "0");
+    return Math.round(balance * 100);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -115,6 +128,9 @@ export async function syncAccounts(accessToken: string, enrollmentId: string): P
   let synced = 0;
 
   for (const ta of tellerAccounts) {
+    // Fetch balance
+    const balance = await fetchTellerBalance(accessToken, ta.id);
+
     const existing = db
       .select()
       .from(schema.accounts)
@@ -123,7 +139,7 @@ export async function syncAccounts(accessToken: string, enrollmentId: string): P
 
     if (existing) {
       db.update(schema.accounts)
-        .set({ name: ta.name, lastSynced: now() })
+        .set({ name: ta.name, balance, lastSynced: now() })
         .where(eq(schema.accounts.id, existing.id))
         .run();
     } else {
@@ -136,6 +152,7 @@ export async function syncAccounts(accessToken: string, enrollmentId: string): P
           subtype: ta.subtype,
           lastFour: ta.last_four,
           currency: ta.currency,
+          balance,
           tellerAccountId: ta.id,
           tellerEnrollmentId: enrollmentId,
           lastSynced: now(),
@@ -152,35 +169,42 @@ export async function syncAccounts(accessToken: string, enrollmentId: string): P
 /**
  * Sync transactions for all connected accounts.
  * Uses 10-day overlap window to catch pending→posted transitions.
- * Deduplicates by Teller transaction ID.
+ * Deduplicates by Teller transaction ID and resolves user-entered placeholders.
  */
-export async function syncTransactions(accessToken: string): Promise<{
+export async function syncTransactions(accessToken: string, enrollmentId: string): Promise<{
   newTransactions: number;
   updatedTransactions: number;
+  resolvedPlaceholders: number;
 }> {
-  // Get all accounts with a Teller account ID (single-user app)
+  // Only fetch transactions for accounts belonging to this enrollment
   const allAccounts = db
     .select()
     .from(schema.accounts)
+    .where(eq(schema.accounts.tellerEnrollmentId, enrollmentId))
     .all();
 
   let newCount = 0;
   let updatedCount = 0;
+  let resolvedPlaceholders = 0;
 
   for (const account of allAccounts) {
     if (!account.tellerAccountId) continue;
+    if (account.name.startsWith("[EXCLUDED]")) continue;
 
-    // Fetch with 10-day overlap from last sync
+    // On first sync, go back to Jan 1 of the current year.
+    // On subsequent syncs, use 10-day overlap from last sync.
     const lastSync = account.lastSynced;
-    let startDate: string | undefined;
+    let startDate: string;
     if (lastSync) {
       const d = new Date(lastSync);
       d.setDate(d.getDate() - 10);
       startDate = d.toISOString().split("T")[0];
+    } else {
+      startDate = `${new Date().getFullYear()}-01-01`;
     }
 
     const transactions = await fetchTellerTransactions(accessToken, account.tellerAccountId, {
-      count: 250,
+      count: 500,
       startDate,
     });
 
@@ -195,8 +219,9 @@ export async function syncTransactions(accessToken: string): Promise<{
       const amountCents = Math.round(Math.abs(parseFloat(tx.amount)) * 100);
       const isExpense = parseFloat(tx.amount) < 0;
 
-      // Map Teller category to Bud category
-      const categoryId = mapTellerCategory(tx.details.category);
+      // Map Teller category to Bud category (with merchant fallback)
+      const merchantName = tx.details.counterparty?.name ?? tx.description;
+      const categoryId = mapTellerCategory(tx.details.category, merchantName, tx.description, isExpense);
 
       if (existing) {
         // Update if status changed (pending -> posted)
@@ -208,9 +233,10 @@ export async function syncTransactions(accessToken: string): Promise<{
           updatedCount++;
         }
       } else {
+        const newTxnId = newId();
         db.insert(schema.transactions)
           .values({
-            id: newId(),
+            id: newTxnId,
             accountId: account.id,
             amount: amountCents,
             type: isExpense ? "expense" : "income",
@@ -220,11 +246,37 @@ export async function syncTransactions(accessToken: string): Promise<{
             date: tx.date,
             status: tx.status,
             bankTransactionId: tx.id,
+            source: "teller",
             isRecurring: false,
             createdAt: now(),
           })
           .run();
         newCount++;
+
+        // Resolve placeholder: a user-entered row on the same account/date/amount
+        // is the same transaction the user was anticipating. Move its tags to the
+        // Teller row and delete the placeholder.
+        const placeholder = db
+          .select()
+          .from(schema.transactions)
+          .where(and(
+            eq(schema.transactions.accountId, account.id),
+            eq(schema.transactions.date, tx.date),
+            eq(schema.transactions.amount, amountCents),
+            eq(schema.transactions.source, "placeholder"),
+          ))
+          .get();
+
+        if (placeholder) {
+          db.update(schema.transactionTags)
+            .set({ transactionId: newTxnId })
+            .where(eq(schema.transactionTags.transactionId, placeholder.id))
+            .run();
+          db.delete(schema.transactions)
+            .where(eq(schema.transactions.id, placeholder.id))
+            .run();
+          resolvedPlaceholders++;
+        }
       }
     }
 
@@ -235,5 +287,5 @@ export async function syncTransactions(accessToken: string): Promise<{
       .run();
   }
 
-  return { newTransactions: newCount, updatedTransactions: updatedCount };
+  return { newTransactions: newCount, updatedTransactions: updatedCount, resolvedPlaceholders };
 }
