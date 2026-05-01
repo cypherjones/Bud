@@ -31,6 +31,7 @@ type Props = {
     subscriptions: { merchant: string; monthlyCost: number; category: string | null; lastSeen: string; flaggedCancel: boolean }[];
     totalMonthly: number;
     totalAnnual: number;
+    cancelledMonthlySavings: number;
   };
   taxDeductions: {
     groups: { category: string; items: { merchant: string | null; amount: number; date: string }[]; total: number }[];
