@@ -22,27 +22,50 @@ export default async function GoalsPage() {
 
   const savingsGoals = await db.select().from(schema.savingsGoals).all();
 
-  // Combine both into a unified list
-  const goals = [
-    ...plans.map((p) => ({
+  // Combine both into a unified list. Goals can show up in either table
+  // depending on which AI tool created them (create_savings_goal vs.
+  // create_financial_plan with type='savings_goal'). De-dupe by lowercase
+  // name; when a goal exists in both tables, prefer savingsGoals as the
+  // canonical row but inherit the plan's targetDate if the goal lacks one.
+  type Goal = {
+    id: string;
+    name: string;
+    targetAmount: number;
+    currentAmount: number;
+    targetDate: string | null;
+    status: string;
+    source: "plan" | "goal";
+  };
+
+  const byName = new Map<string, Goal>();
+
+  for (const p of plans) {
+    byName.set(p.name.toLowerCase(), {
       id: p.id,
       name: p.name,
       targetAmount: p.targetAmount ?? 0,
       currentAmount: p.currentSaved,
       targetDate: p.targetDate,
       status: p.status,
-      source: "plan" as const,
-    })),
-    ...savingsGoals.map((g) => ({
+      source: "plan",
+    });
+  }
+
+  for (const g of savingsGoals) {
+    const key = g.name.toLowerCase();
+    const existing = byName.get(key);
+    byName.set(key, {
       id: g.id,
       name: g.name,
-      targetAmount: g.targetAmount,
+      targetAmount: g.targetAmount || existing?.targetAmount || 0,
       currentAmount: g.currentAmount,
-      targetDate: g.targetDate,
-      status: "in_progress" as const,
-      source: "goal" as const,
-    })),
-  ];
+      targetDate: g.targetDate ?? existing?.targetDate ?? null,
+      status: existing?.status ?? "in_progress",
+      source: "goal",
+    });
+  }
+
+  const goals = [...byName.values()];
 
   const hasGoals = goals.length > 0;
 
