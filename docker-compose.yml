@@ -1,0 +1,38 @@
+services:
+  bud:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persist SQLite database across container restarts
+      - bud-data:/app/data
+    environment:
+      - NODE_ENV=production
+      # Secrets injected by Doppler
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - TELLER_APPLICATION_ID=${TELLER_APPLICATION_ID:-}
+      - TELLER_ENVIRONMENT=${TELLER_ENVIRONMENT:-sandbox}
+    restart: unless-stopped
+
+  # Development with hot reload
+  bud-dev:
+    build:
+      context: .
+      target: deps
+    command: sh -c "npm run dev:local"
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - bud-data:/app/data
+    environment:
+      - NODE_ENV=development
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - TELLER_APPLICATION_ID=${TELLER_APPLICATION_ID:-}
+      - TELLER_ENVIRONMENT=${TELLER_ENVIRONMENT:-sandbox}
+    profiles:
+      - dev
+
+volumes:
+  bud-data:
