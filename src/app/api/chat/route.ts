@@ -14,7 +14,7 @@ export const maxDuration = 60;
 
 type ChatMessage = {
   role: "user" | "assistant";
-  content: string;
+  content: string | Anthropic.Messages.ContentBlockParam[];
 };
 
 export async function POST(req: Request) {
@@ -35,20 +35,26 @@ export async function POST(req: Request) {
   const context = await buildFinancialContext();
   const systemPrompt = buildSystemPrompt(context);
 
-  // Convert to Anthropic message format
+  // Convert to Anthropic message format — content can be string or multimodal blocks
   const anthropicMessages: Anthropic.Messages.MessageParam[] = messages.map((m) => ({
     role: m.role,
     content: m.content,
   }));
 
-  // Persist user message
+  // Persist user message (text only for storage)
   const userMessage = messages[messages.length - 1];
   if (userMessage.role === "user") {
+    const textContent = typeof userMessage.content === "string"
+      ? userMessage.content
+      : (userMessage.content as Array<{ type: string; text?: string }>)
+          .filter((b) => b.type === "text")
+          .map((b) => b.text)
+          .join(" ") || "[image]";
     db.insert(schema.chatMessages)
       .values({
         id: newId(),
         role: "user",
-        content: userMessage.content,
+        content: textContent,
         createdAt: now(),
       })
       .run();
@@ -64,7 +70,13 @@ export async function POST(req: Request) {
       const response = await client.messages.create({
         model: MODEL,
         max_tokens: 4096,
-        system: systemPrompt,
+        system: [
+          {
+            type: "text",
+            text: systemPrompt,
+            cache_control: { type: "ephemeral" },
+          },
+        ],
         tools: budTools,
         messages: currentMessages,
       });
