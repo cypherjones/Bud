@@ -2,11 +2,13 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { apiFetch } from "@/lib/client/api";
+import type { Attachment } from "@/components/chat/chat-input";
 
 export type Message = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  images?: string[]; // data URLs for display
   toolCalls?: unknown[];
 };
 
@@ -22,7 +24,7 @@ export function useChat() {
       .then((data) => {
         if (data.messages) {
           setMessages(
-            data.messages.map((m: { id: string; role: string; content: string; tool_calls?: string }) => ({
+            data.messages.map((m: { id: string; role: string; content: string }) => ({
               id: m.id,
               role: m.role as "user" | "assistant",
               content: m.content,
@@ -30,19 +32,18 @@ export function useChat() {
           );
         }
       })
-      .catch(() => {
-        // Silently fail on history load
-      });
+      .catch(() => {});
   }, []);
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, attachments?: Attachment[]) => {
       setError(null);
 
       const userMsg: Message = {
         id: Date.now().toString(),
         role: "user",
         content,
+        images: attachments?.map((a) => a.dataUrl),
       };
 
       const updatedMessages = [...messages, userMsg];
@@ -50,15 +51,46 @@ export function useChat() {
       setIsLoading(true);
 
       try {
+        // Build the message payload — last 20 messages
+        const apiMessages = updatedMessages.slice(-20).map((m) => {
+          if (m.images && m.images.length > 0) {
+            // Multimodal message with images and/or PDFs
+            return {
+              role: m.role,
+              content: [
+                ...m.images.map((dataUrl) => {
+                  const [header, base64] = dataUrl.split(",");
+                  const mediaType = header.match(/data:(.*?);/)?.[1] || "image/png";
+                  if (mediaType === "application/pdf") {
+                    return {
+                      type: "document" as const,
+                      source: {
+                        type: "base64" as const,
+                        media_type: "application/pdf" as const,
+                        data: base64,
+                      },
+                    };
+                  }
+                  return {
+                    type: "image" as const,
+                    source: {
+                      type: "base64" as const,
+                      media_type: mediaType,
+                      data: base64,
+                    },
+                  };
+                }),
+                { type: "text" as const, text: m.content },
+              ],
+            };
+          }
+          return { role: m.role, content: m.content };
+        });
+
         const res = await apiFetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: updatedMessages.slice(-20).map((m) => ({
-              role: m.role,
-              content: m.content,
-            })),
-          }),
+          body: JSON.stringify({ messages: apiMessages }),
         });
 
         if (!res.ok) {
@@ -80,13 +112,12 @@ export function useChat() {
         const message = err instanceof Error ? err.message : "Something went wrong";
         setError(message);
 
-        // Add error as assistant message
         setMessages((prev) => [
           ...prev,
           {
             id: (Date.now() + 1).toString(),
             role: "assistant",
-            content: `Something went wrong. Please try again.`,
+            content: "Something went wrong. Please try again.",
           },
         ]);
       } finally {

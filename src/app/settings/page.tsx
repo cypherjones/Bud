@@ -5,8 +5,15 @@ import Script from "next/script";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { RefreshCw, Link2, CheckCircle, Building2 } from "lucide-react";
+import { RefreshCw, Link2, CheckCircle, Building2, Plus } from "lucide-react";
 import { apiFetch } from "@/lib/client/api";
+
+type Enrollment = {
+  id: string;
+  enrollmentId: string;
+  institution: string;
+  createdAt: string;
+};
 
 declare global {
   interface Window {
@@ -26,20 +33,24 @@ declare global {
 }
 
 export default function SettingsPage() {
-  const [isConnected, setIsConnected] = useState(false);
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [sdkReady, setSdkReady] = useState(false);
   const tellerRef = useRef<{ open(): void } | null>(null);
 
-  useEffect(() => {
+  const loadEnrollments = () => {
     apiFetch("/api/settings/teller")
       .then((r) => r.json())
       .then((data) => {
-        if (data.connected) setIsConnected(true);
+        if (data.enrollments) setEnrollments(data.enrollments);
       })
       .catch(() => {});
+  };
+
+  useEffect(() => {
+    loadEnrollments();
   }, []);
 
   const initTellerConnect = () => {
@@ -58,11 +69,11 @@ export default function SettingsPage() {
             body: JSON.stringify({
               access_token: enrollment.accessToken,
               enrollment_id: enrollment.enrollment.id,
+              institution: enrollment.enrollment.institution.name,
             }),
           });
           if (res.ok) {
-            setIsConnected(true);
-            // Auto-trigger first sync
+            loadEnrollments();
             handleSync();
           }
         } finally {
@@ -90,9 +101,14 @@ export default function SettingsPage() {
       const res = await apiFetch("/api/sync", { method: "POST" });
       const data = await res.json();
       if (res.ok) {
-        setSyncResult(
-          `Synced: ${data.new_transactions} new transactions, ${data.updated_transactions} updated, ${data.new_accounts} new accounts`
-        );
+        const parts = [];
+        if (data.new_accounts > 0) parts.push(`${data.new_accounts} new accounts`);
+        if (data.new_transactions > 0) parts.push(`${data.new_transactions} new transactions`);
+        if (data.updated_transactions > 0) parts.push(`${data.updated_transactions} updated`);
+        setSyncResult(parts.length > 0 ? `Synced: ${parts.join(", ")}` : "Everything up to date");
+        if (data.errors) {
+          setSyncResult((prev) => `${prev} (errors: ${data.errors.join("; ")})`);
+        }
       } else {
         setSyncResult(`Error: ${data.error}`);
       }
@@ -124,57 +140,80 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
                   <Link2 className="w-4 h-4 text-primary" />
-                  Bank Connection
+                  Bank Connections
                 </CardTitle>
-                {isConnected && (
+                {enrollments.length > 0 && (
                   <Badge variant="secondary" className="bg-green-100 text-green-700">
                     <CheckCircle className="w-3 h-3 mr-1" />
-                    Connected
+                    {enrollments.length} connected
                   </Badge>
                 )}
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {!isConnected ? (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    Securely connect your bank to automatically import
-                    transactions. Your credentials are handled directly by Teller
-                    and never touch our servers.
-                  </p>
-                  <Button
-                    onClick={handleConnectBank}
-                    disabled={!sdkReady || isConnecting}
-                  >
-                    <Building2 className="w-4 h-4 mr-2" />
-                    {isConnecting
-                      ? "Connecting..."
-                      : sdkReady
-                        ? "Connect Bank"
-                        : "Loading..."}
-                  </Button>
-                </>
-              ) : (
-                <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    Your bank is connected. Sync your latest transactions below.
-                  </p>
-                  <div className="flex items-center gap-3">
-                    <Button
-                      onClick={handleSync}
-                      disabled={isSyncing}
-                      variant="outline"
+              {enrollments.length > 0 && (
+                <div className="space-y-2">
+                  {enrollments.map((e) => (
+                    <div
+                      key={e.id}
+                      className="flex items-center justify-between rounded-md border px-4 py-3"
                     >
-                      <RefreshCw
-                        className={`w-4 h-4 mr-2 ${isSyncing ? "animate-spin" : ""}`}
-                      />
-                      {isSyncing ? "Syncing..." : "Sync Now"}
-                    </Button>
-                  </div>
-                  {syncResult && (
-                    <p className="text-sm text-muted-foreground">{syncResult}</p>
-                  )}
+                      <div className="flex items-center gap-3">
+                        <Building2 className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">{e.institution}</span>
+                      </div>
+                      <Badge variant="outline" className="text-xs text-muted-foreground">
+                        Connected
+                      </Badge>
+                    </div>
+                  ))}
                 </div>
+              )}
+
+              <div className="flex items-center gap-3">
+                <Button
+                  onClick={handleConnectBank}
+                  disabled={!sdkReady || isConnecting}
+                  variant={enrollments.length > 0 ? "outline" : "default"}
+                >
+                  {enrollments.length > 0 ? (
+                    <Plus className="w-4 h-4 mr-2" />
+                  ) : (
+                    <Building2 className="w-4 h-4 mr-2" />
+                  )}
+                  {isConnecting
+                    ? "Connecting..."
+                    : sdkReady
+                      ? enrollments.length > 0
+                        ? "Add Another Bank"
+                        : "Connect Bank"
+                      : "Loading..."}
+                </Button>
+
+                {enrollments.length > 0 && (
+                  <Button
+                    onClick={handleSync}
+                    disabled={isSyncing}
+                    variant="outline"
+                  >
+                    <RefreshCw
+                      className={`w-4 h-4 mr-2 ${isSyncing ? "animate-spin" : ""}`}
+                    />
+                    {isSyncing ? "Syncing..." : "Sync All"}
+                  </Button>
+                )}
+              </div>
+
+              {enrollments.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Securely connect your banks to automatically import
+                  transactions. Your credentials are handled directly by Teller
+                  and never touch our servers.
+                </p>
+              )}
+
+              {syncResult && (
+                <p className="text-sm text-muted-foreground">{syncResult}</p>
               )}
             </CardContent>
           </Card>
