@@ -271,9 +271,22 @@ export function getSubscriptionAudit() {
   }
 
   const subscriptions = [...byMerchant.values()].sort((a, b) => b.monthlyCost - a.monthlyCost);
-  const totalMonthly = subscriptions.reduce((s, sub) => s + sub.monthlyCost, 0);
 
-  return { subscriptions, totalMonthly, totalAnnual: totalMonthly * 12 };
+  // The roll-up represents *current* monthly burn — exclude anything flagged
+  // as cancelled. Cancelled subs still appear in the list (with the flag) so
+  // the user can see what they used to be paying, but the headline number is
+  // the cost of what's still active.
+  const activeSubs = subscriptions.filter((s) => !s.flaggedCancel);
+  const cancelledSubs = subscriptions.filter((s) => s.flaggedCancel);
+  const totalMonthly = activeSubs.reduce((s, sub) => s + sub.monthlyCost, 0);
+  const cancelledMonthlySavings = cancelledSubs.reduce((s, sub) => s + sub.monthlyCost, 0);
+
+  return {
+    subscriptions,
+    totalMonthly,
+    totalAnnual: totalMonthly * 12,
+    cancelledMonthlySavings,
+  };
 }
 
 // === TAX DEDUCTIONS ===

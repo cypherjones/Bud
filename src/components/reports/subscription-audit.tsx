@@ -21,8 +21,9 @@ type Sub = {
 type Props = {
   data: {
     subscriptions: Sub[];
-    totalMonthly: number;
+    totalMonthly: number; // active-only (server already excludes flaggedCancel)
     totalAnnual: number;
+    cancelledMonthlySavings: number;
   };
 };
 
@@ -32,8 +33,8 @@ export function SubscriptionAudit({ data }: Props) {
 
   const activeSubs = data.subscriptions.filter(s => !s.flaggedCancel);
   const cancelledSubs = data.subscriptions.filter(s => s.flaggedCancel);
-  const activeMonthly = activeSubs.reduce((s, sub) => s + sub.monthlyCost, 0);
-  const cancelSavings = cancelledSubs.reduce((s, sub) => s + sub.monthlyCost, 0);
+  const activeMonthly = data.totalMonthly;
+  const cancelSavings = data.cancelledMonthlySavings;
   const top3Cost = activeSubs.slice(0, 3).reduce((s, sub) => s + sub.monthlyCost, 0);
   const top3Pct = activeMonthly > 0 ? Math.round((top3Cost / activeMonthly) * 100) : 0;
 
