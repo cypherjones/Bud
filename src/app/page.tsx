@@ -4,8 +4,9 @@ import { DebtProgress } from "@/components/dashboard/debt-progress";
 import { MoveTracker } from "@/components/dashboard/move-tracker";
 import { CreditScoreCard } from "@/components/dashboard/credit-score-card";
 import { TaxStatusCard } from "@/components/dashboard/tax-status-card";
-import { UpcomingBills } from "@/components/dashboard/upcoming-bills";
-import { ChatPanel } from "@/components/chat/chat-interface";
+
+import { SpendingVelocity } from "@/components/dashboard/spending-velocity";
+import { SinceLastVisitStrip } from "@/components/dashboard/since-last-visit-strip";
 import { Wallet, TrendingDown, TrendingUp } from "lucide-react";
 import {
   getMetrics,
@@ -15,7 +16,9 @@ import {
   getCreditSummary,
   getTaxSummary,
   getUpcomingBills,
+  getSinceLastVisit,
 } from "@/lib/actions/dashboard";
+import { getSpendingVelocity, getSpendingByDay } from "@/lib/actions/reports";
 import { formatCurrency } from "@/lib/utils/format";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +31,10 @@ export default function DashboardPage() {
   const creditData = getCreditSummary();
   const taxData = getTaxSummary();
   const bills = getUpcomingBills();
+  const velocity = getSpendingVelocity();
+  const monthStart = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; })();
+  const dailySpending = getSpendingByDay(monthStart, new Date().toISOString().split("T")[0]);
+  const sinceLastVisit = getSinceLastVisit();
 
   const hasTransactions = metrics.spending > 0 || metrics.income > 0;
 
@@ -53,6 +60,10 @@ export default function DashboardPage() {
 
       {/* Dashboard grid */}
       <div className="flex-1 overflow-auto p-8">
+        <div className="mb-6">
+          <SinceLastVisitStrip {...sinceLastVisit} />
+        </div>
+
         {/* Top row: key metrics */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
           <MetricCard
@@ -80,13 +91,16 @@ export default function DashboardPage() {
         </div>
 
         {/* Middle row: charts */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
           <SpendingOverview data={spendingData} />
+          <SpendingVelocity velocity={velocity} dailySpending={dailySpending} />
           <DebtProgress
             debts={debtData.debts}
             totalActive={debtData.totalActive}
             totalOriginal={debtData.totalOriginal}
             progress={debtData.progress}
+            monthRecommended={debtData.monthRecommended}
+            monthActual={debtData.monthActual}
           />
         </div>
 
@@ -101,14 +115,25 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* Upcoming bills */}
-        <div className="mb-6">
-          <UpcomingBills bills={bills} />
-        </div>
+        {/* Upcoming bills link */}
+        <a href="/schedule" className="block mb-6">
+          <Card className="hover:bg-accent/30 transition-colors cursor-pointer">
+            <CardContent className="flex items-center justify-between py-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center">
+                  <TrendingDown className="w-5 h-5 text-muted-foreground" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Upcoming Bills</p>
+                  <p className="text-xs text-muted-foreground">{bills.length} recurring charges scheduled</p>
+                </div>
+              </div>
+              <span className="text-sm font-medium text-muted-foreground">View Schedule →</span>
+            </CardContent>
+          </Card>
+        </a>
       </div>
 
-      {/* Persistent chat panel */}
-      <ChatPanel />
     </div>
   );
 }

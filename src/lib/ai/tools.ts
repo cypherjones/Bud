@@ -15,6 +15,50 @@ export const budTools: Tool[] = [
     },
   },
   {
+    name: "add_transaction",
+    description:
+      "Add a new transaction to an account. Use placeholder=true when the user is logging something they expect Teller to sync soon (paychecks, recent purchases on connected accounts) — the row will auto-resolve to the Teller-synced version on the next sync. Use placeholder=false for authoritative manual entries on accounts that don't sync via Teller. Always confirm the account by name or last-four when ambiguous.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        account: {
+          type: "string",
+          description: "Account name fragment or last-four digits (e.g. 'Chime', '1387', 'Simply Checking')",
+        },
+        amount: {
+          type: "number",
+          description: "Amount in dollars (always positive, sign comes from `type`)",
+        },
+        type: {
+          type: "string",
+          enum: ["income", "expense"],
+          description: "Whether money came in (income) or went out (expense)",
+        },
+        description: {
+          type: "string",
+          description: "What this transaction is for (e.g. 'Apr 30 Navusoft paycheck', 'Target groceries')",
+        },
+        date: {
+          type: "string",
+          description: "ISO date YYYY-MM-DD; defaults to today",
+        },
+        category: {
+          type: "string",
+          description: "Optional Bud category name. If omitted, the merchant/description is auto-categorized.",
+        },
+        placeholder: {
+          type: "boolean",
+          description: "True if expecting Teller to bring this in soon (will auto-resolve on next sync). Default true for Teller-connected accounts when date is within 14 days.",
+        },
+        placeholder_ttl_days: {
+          type: "number",
+          description: "Days before placeholder expires (default 14). Only used when placeholder=true.",
+        },
+      },
+      required: ["account", "amount", "type", "description"],
+    },
+  },
+  {
     name: "search_transactions",
     description:
       "Search transactions by merchant, category, date range, or amount range. Returns matching transactions.",
@@ -167,6 +211,21 @@ export const budTools: Tool[] = [
       required: [],
     },
   },
+  {
+    name: "summarize_debt_month",
+    description:
+      "Compare the recommended debt allocation to what was actually paid in a given month. Returns per-debt rows (recommended cents, actual cents, status: ahead/on_track/behind/no_plan) plus an aggregate sentence. Use this when the user asks 'how am I doing on debt this month' or wants concrete numbers vs. plan, not generic advice.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        month: {
+          type: "string",
+          description: "Month in YYYY-MM format. Defaults to current month.",
+        },
+      },
+      required: [],
+    },
+  },
 
   // === FINANCIAL PLAN TOOLS ===
   {
@@ -283,6 +342,36 @@ export const budTools: Tool[] = [
         confirmation_number: { type: "string", description: "Payment confirmation number" },
       },
       required: ["agency", "amount"],
+    },
+  },
+
+  // === SAVINGS GOAL TOOLS ===
+  {
+    name: "create_savings_goal",
+    description: "Create a new savings goal to track progress toward a target amount.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Goal name (e.g. 'Emergency Fund', 'New Car')" },
+        target_amount: { type: "number", description: "Target amount in dollars" },
+        current_amount: { type: "number", description: "Amount already saved in dollars (default 0)" },
+        target_date: { type: "string", description: "Target date to reach the goal (YYYY-MM-DD)" },
+      },
+      required: ["name", "target_amount"],
+    },
+  },
+  {
+    name: "update_savings_goal",
+    description: "Update a savings goal — add to saved amount, change target, or mark complete.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Goal name to find" },
+        add_amount: { type: "number", description: "Amount to add to current savings in dollars" },
+        target_amount: { type: "number", description: "New target amount in dollars (if changing)" },
+        target_date: { type: "string", description: "New target date (YYYY-MM-DD)" },
+      },
+      required: ["name"],
     },
   },
 

@@ -4,12 +4,29 @@ import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 // CORE TABLES
 // ============================================================
 
+export const categoryGroups = sqliteTable("category_groups", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  color: text("color"), // hex color for group
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull(),
+});
+
 export const categories = sqliteTable("categories", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  icon: text("icon"), // emoji
+  icon: text("icon"),
   color: text("color"), // hex color for charts
+  groupId: text("group_id").references(() => categoryGroups.id),
   isSystem: integer("is_system", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull(),
+});
+
+export const tellerEnrollments = sqliteTable("teller_enrollments", {
+  id: text("id").primaryKey(),
+  enrollmentId: text("enrollment_id").notNull().unique(),
+  accessToken: text("access_token").notNull(), // encrypted
+  institution: text("institution").notNull(), // "Capital One", "Chase", etc.
   createdAt: text("created_at").notNull(),
 });
 
@@ -21,9 +38,27 @@ export const accounts = sqliteTable("accounts", {
   subtype: text("subtype"), // "checking" | "savings" | "credit_card"
   lastFour: text("last_four"),
   currency: text("currency").notNull().default("USD"),
+  balance: integer("balance"), // cents — current balance from Teller
   tellerAccountId: text("teller_account_id"), // external ID from Teller
   tellerEnrollmentId: text("teller_enrollment_id"),
+  // when true, account's transactions are hidden from dashboard/reports.
+  // incoming transfers FROM an excluded account still show on the receiving account.
+  excludeFromReports: integer("exclude_from_reports", { mode: "boolean" }).notNull().default(false),
   lastSynced: text("last_synced"),
+  createdAt: text("created_at").notNull(),
+});
+
+export const tags = sqliteTable("tags", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull().unique(), // "business", "frivolous", etc.
+  color: text("color").notNull().default("#6b7280"),
+  createdAt: text("created_at").notNull(),
+});
+
+export const transactionTags = sqliteTable("transaction_tags", {
+  id: text("id").primaryKey(),
+  transactionId: text("transaction_id").notNull().references(() => transactions.id),
+  tagId: text("tag_id").notNull().references(() => tags.id),
   createdAt: text("created_at").notNull(),
 });
 
@@ -39,6 +74,11 @@ export const transactions = sqliteTable("transactions", {
   status: text("status").notNull().default("posted"), // "posted" | "pending"
   bankTransactionId: text("bank_transaction_id"), // Teller transaction ID for dedup
   isRecurring: integer("is_recurring", { mode: "boolean" }).notNull().default(false),
+  // Origin of the row. "teller" = synced from bank, "manual" = user-entered authoritative,
+  // "placeholder" = user-entered in anticipation of a Teller sync; auto-replaced when matching
+  // Teller row arrives, or expires after placeholderExpiresAt.
+  source: text("source").notNull().default("manual"),
+  placeholderExpiresAt: text("placeholder_expires_at"),
   createdAt: text("created_at").notNull(),
 });
 
@@ -137,6 +177,10 @@ export const debtPayments = sqliteTable("debt_payments", {
   type: text("type").notNull(), // "minimum" | "extra" | "lump_sum"
   newBalance: integer("new_balance").notNull(), // cents — balance after payment
   notes: text("notes"),
+  // Optional link to the Teller-synced transaction this payment corresponds to.
+  // Nullable because not every payment has a matching bank row yet, and some
+  // accounts aren't connected to Teller.
+  linkedTransactionId: text("linked_transaction_id").references(() => transactions.id),
   createdAt: text("created_at").notNull(),
 });
 

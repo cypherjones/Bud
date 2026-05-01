@@ -2,10 +2,13 @@ import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { formatCurrency } from "@/lib/utils/format";
 import { calculateDebtAllocation } from "@/lib/utils/debt-engine";
+import { getMonthlyAllocationVsActual } from "@/lib/actions/debts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
+import { LogPaymentDialog } from "@/components/debts/log-payment-dialog";
+import { AddTaxObligationDialog } from "@/components/debts/add-tax-obligation-dialog";
 
 export const dynamic = "force-dynamic";
 
@@ -35,11 +38,14 @@ export default function DebtsPage() {
   if (allDebts.length === 0) {
     return (
       <div className="flex flex-col h-screen">
-        <header className="px-8 py-6 border-b border-border bg-card/50">
-          <h1 className="text-2xl font-bold tracking-tight">Debt Payoff</h1>
-          <p className="text-sm text-muted-foreground">
-            Smart allocation and payoff tracking
-          </p>
+        <header className="px-8 py-6 border-b border-border bg-card/50 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Debt Payoff</h1>
+            <p className="text-sm text-muted-foreground">
+              Smart allocation and payoff tracking
+            </p>
+          </div>
+          <AddTaxObligationDialog />
         </header>
         <div className="flex-1 overflow-auto p-8">
           <Card>
@@ -87,13 +93,21 @@ export default function DebtsPage() {
         )
       : null;
 
+  // This-month recommended vs. actual paid (per debt + aggregate). Snaps the
+  // allocation row into debtAllocations on first load of a new month.
+  const monthVsActual = getMonthlyAllocationVsActual();
+  const vsActualByDebt = new Map(monthVsActual.rows.map((r) => [r.debtId, r]));
+
   return (
     <div className="flex flex-col h-screen">
-      <header className="px-8 py-6 border-b border-border bg-card/50">
-        <h1 className="text-2xl font-bold tracking-tight">Debt Payoff</h1>
-        <p className="text-sm text-muted-foreground">
-          Smart allocation and payoff tracking
-        </p>
+      <header className="px-8 py-6 border-b border-border bg-card/50 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Debt Payoff</h1>
+          <p className="text-sm text-muted-foreground">
+            Smart allocation and payoff tracking
+          </p>
+        </div>
+        <AddTaxObligationDialog />
       </header>
 
       <div className="flex-1 overflow-auto p-8 space-y-8">
@@ -185,10 +199,12 @@ export default function DebtsPage() {
                       )
                     : null;
 
+                const monthRow = vsActualByDebt.get(debt.id);
+
                 return (
                   <Card key={debt.id}>
                     <CardHeader className="pb-3">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
                         <CardTitle className="text-base">
                           {debt.creditorName}
                         </CardTitle>
@@ -202,6 +218,11 @@ export default function DebtsPage() {
                           <Badge variant="secondary">
                             {TYPE_LABELS[debt.type] ?? debt.type}
                           </Badge>
+                          <LogPaymentDialog
+                            debtId={debt.id}
+                            creditorName={debt.creditorName}
+                            minimumPayment={debt.minimumPayment}
+                          />
                         </div>
                       </div>
                     </CardHeader>
@@ -263,6 +284,10 @@ export default function DebtsPage() {
                         </div>
                         <Progress value={payoffPct} className="h-2" />
                       </div>
+
+                      {monthRow && monthRow.recommended > 0 && (
+                        <MonthVsActualStrip row={monthRow} />
+                      )}
 
                       {debt.dueDay && (
                         <p className="text-xs text-muted-foreground">
@@ -434,4 +459,54 @@ function ordinal(n: number): string {
   const s = ["th", "st", "nd", "rd"];
   const v = n % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function MonthVsActualStrip({
+  row,
+}: {
+  row: {
+    recommended: number;
+    actualPaid: number;
+    paymentCount: number;
+    status: "ahead" | "on_track" | "behind" | "no_plan";
+  };
+}) {
+  if (row.status === "no_plan") return null;
+
+  const pct = row.recommended > 0
+    ? Math.min(150, Math.round((row.actualPaid / row.recommended) * 100))
+    : 0;
+  const barWidth = Math.min(100, pct);
+
+  const statusLabel =
+    row.status === "ahead" ? "ahead of plan"
+    : row.status === "on_track" ? "on track"
+    : "behind plan";
+  const statusColor =
+    row.status === "ahead" ? "text-emerald-400"
+    : row.status === "on_track" ? "text-amber-400"
+    : "text-red-400";
+  const barColor =
+    row.status === "ahead" ? "bg-emerald-500"
+    : row.status === "on_track" ? "bg-amber-500"
+    : "bg-red-500";
+
+  return (
+    <div className="rounded-md bg-muted/40 px-3 py-2 text-xs space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-muted-foreground">This month</span>
+        <span className={`font-medium ${statusColor}`}>{pct}% · {statusLabel}</span>
+      </div>
+      <div className="h-1 rounded-full bg-muted overflow-hidden">
+        <div className={`h-full ${barColor}`} style={{ width: `${barWidth}%` }} />
+      </div>
+      <div className="flex items-center justify-between text-muted-foreground">
+        <span>
+          {formatCurrency(row.actualPaid)} paid
+          {row.paymentCount > 0 ? ` · ${row.paymentCount} ${row.paymentCount === 1 ? "payment" : "payments"}` : ""}
+        </span>
+        <span>of {formatCurrency(row.recommended)} recommended</span>
+      </div>
+    </div>
+  );
 }
