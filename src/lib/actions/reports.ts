@@ -440,39 +440,158 @@ export function getCategoryTrends(months: number = 3) {
 
 // === CASH FLOW FORECAST ===
 
+/**
+ * Cash-flow forecast that walks the actual schedule, not flat averages.
+ *
+ * Past days come from getSpendingByDay (real transactions). Future days come
+ * from active recurring_transactions expanded by frequency through the
+ * projection window. The projected-balance line starts at today's summed
+ * non-excluded account balance and walks forward day-by-day applying
+ * scheduled inflows and outflows.
+ */
 export function getCashFlowForecast(days: number = 90) {
   const monthStart = getMonthStart();
   const today = getToday();
+  const todayDate = new Date(today + "T00:00:00");
 
   const actuals = getSpendingByDay(monthStart, today);
 
-  // Calculate daily averages from actual data
-  const totalDays = actuals.length || 1;
-  const avgDailyExpenses = Math.round(actuals.reduce((s, d) => s + d.expenses, 0) / totalDays);
-  const avgDailyIncome = Math.round(actuals.reduce((s, d) => s + d.income, 0) / totalDays);
+  // Starting balance = sum of current balances for non-excluded accounts.
+  const excludedAccountIds = new Set(getExcludedAccountIds());
+  const accounts = db.select().from(schema.accounts).all();
+  const startingBalance = accounts
+    .filter((a) => !excludedAccountIds.has(a.id))
+    .reduce((s, a) => s + (a.balance ?? 0), 0);
 
-  // Project forward
-  const projected: { date: string; expenses: number; income: number; isProjected: boolean }[] = [];
+  // Active recurring rows with category-group context for income/expense classification.
+  const internalCats = new Set(getInternalCategoryIds());
+  const recurring = db
+    .select({
+      id: schema.recurringTransactions.id,
+      merchant: schema.recurringTransactions.merchant,
+      amount: schema.recurringTransactions.amount,
+      frequency: schema.recurringTransactions.frequency,
+      nextDueDate: schema.recurringTransactions.nextDueDate,
+      categoryId: schema.recurringTransactions.categoryId,
+      groupName: schema.categoryGroups.name,
+    })
+    .from(schema.recurringTransactions)
+    .leftJoin(schema.categories, eq(schema.recurringTransactions.categoryId, schema.categories.id))
+    .leftJoin(schema.categoryGroups, eq(schema.categories.groupId, schema.categoryGroups.id))
+    .where(eq(schema.recurringTransactions.isActive, true))
+    .all();
 
-  // Add actuals
-  for (const day of actuals) {
-    projected.push({ date: day.date, expenses: day.expenses, income: day.income, isProjected: false });
-  }
+  // Drop Internal-group recurring (transfers, round-ups) — they're net-zero plumbing.
+  const projectionRecurring = recurring.filter(
+    (r) => r.groupName !== "Internal" && (r.categoryId === null || !internalCats.has(r.categoryId)),
+  );
 
-  // Add projections
-  const todayDate = new Date(today);
-  for (let i = 1; i <= days; i++) {
-    const d = new Date(todayDate);
-    d.setDate(d.getDate() + i);
-    projected.push({
-      date: d.toISOString().split("T")[0],
-      expenses: avgDailyExpenses,
-      income: avgDailyIncome,
-      isProjected: true,
+  type Day = { date: string; expenses: number; income: number; isProjected: boolean; projectedBalance: number };
+  const dayMap = new Map<string, Day>();
+
+  // Seed past actuals.
+  for (const a of actuals) {
+    dayMap.set(a.date, {
+      date: a.date,
+      expenses: a.expenses,
+      income: a.income,
+      isProjected: false,
+      projectedBalance: 0,
     });
   }
 
-  const projectedNetMonthly = (avgDailyIncome - avgDailyExpenses) * 30;
+  // Seed future days with zero buckets so every day in the window has an entry.
+  const projectionEnd = new Date(todayDate);
+  projectionEnd.setDate(projectionEnd.getDate() + days);
+  for (let i = 1; i <= days; i++) {
+    const d = new Date(todayDate);
+    d.setDate(d.getDate() + i);
+    const dateStr = d.toISOString().split("T")[0];
+    if (!dayMap.has(dateStr)) {
+      dayMap.set(dateStr, {
+        date: dateStr,
+        expenses: 0,
+        income: 0,
+        isProjected: true,
+        projectedBalance: 0,
+      });
+    }
+  }
 
-  return { data: projected, avgDailyExpenses, avgDailyIncome, projectedNetMonthly };
+  // Expand each recurring row across the projection window.
+  for (const r of projectionRecurring) {
+    if (!r.nextDueDate) continue;
+    const isIncome = r.groupName === "Income";
+
+    const occ = new Date(r.nextDueDate + "T00:00:00");
+    const guardLimit = 400; // safety against malformed frequency strings
+    let iter = 0;
+    while (occ <= projectionEnd && iter < guardLimit) {
+      iter++;
+      const dateStr = occ.toISOString().split("T")[0];
+      // Skip occurrences in the past (those are in actuals or already happened).
+      if (dateStr > today) {
+        const day = dayMap.get(dateStr);
+        if (day) {
+          if (isIncome) day.income += r.amount;
+          else day.expenses += r.amount;
+        }
+      }
+
+      switch (r.frequency) {
+        case "weekly":
+          occ.setDate(occ.getDate() + 7);
+          break;
+        case "biweekly":
+          occ.setDate(occ.getDate() + 14);
+          break;
+        case "monthly":
+          occ.setMonth(occ.getMonth() + 1);
+          break;
+        case "yearly":
+          occ.setFullYear(occ.getFullYear() + 1);
+          break;
+        default:
+          occ.setTime(projectionEnd.getTime() + 86400000); // bail
+      }
+    }
+  }
+
+  // Walk the running balance forward through the projection window.
+  const sortedDays = [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date));
+  let runningBalance = startingBalance;
+  for (const day of sortedDays) {
+    if (day.isProjected) {
+      runningBalance += day.income - day.expenses;
+      day.projectedBalance = runningBalance;
+    }
+  }
+
+  // Headlines.
+  const monthEnd = new Date(todayDate.getFullYear(), todayDate.getMonth() + 1, 0).toISOString().split("T")[0];
+  const nextMonthEnd = new Date(todayDate.getFullYear(), todayDate.getMonth() + 2, 0).toISOString().split("T")[0];
+  const eomEntry = sortedDays.find((d) => d.date === monthEnd);
+  const enmEntry = sortedDays.find((d) => d.date === nextMonthEnd);
+  const endOfMonthBalance = eomEntry?.projectedBalance ?? runningBalance;
+  const endOfNextMonthBalance = enmEntry?.projectedBalance ?? runningBalance;
+
+  // Lowest point in the projected window — flags upcoming cash crunches.
+  const projectedDays = sortedDays.filter((d) => d.isProjected);
+  let lowestProjected: { balance: number; date: string } | null = null;
+  for (const d of projectedDays) {
+    if (lowestProjected === null || d.projectedBalance < lowestProjected.balance) {
+      lowestProjected = { balance: d.projectedBalance, date: d.date };
+    }
+  }
+
+  const projectedNet30 = projectedDays.slice(0, 30).reduce((s, d) => s + d.income - d.expenses, 0);
+
+  return {
+    data: sortedDays,
+    startingBalance,
+    endOfMonthBalance,
+    endOfNextMonthBalance,
+    lowestProjected,
+    projectedNet30,
+  };
 }
