@@ -46,10 +46,12 @@ type Props = {
   };
   categoryTrends: { month: string; categories: { name: string; total: number; color: string }[] }[];
   cashFlow: {
-    data: { date: string; expenses: number; income: number; isProjected: boolean }[];
-    avgDailyExpenses: number;
-    avgDailyIncome: number;
-    projectedNetMonthly: number;
+    data: { date: string; expenses: number; income: number; isProjected: boolean; projectedBalance: number }[];
+    startingBalance: number;
+    endOfMonthBalance: number;
+    endOfNextMonthBalance: number;
+    lowestProjected: { balance: number; date: string } | null;
+    projectedNet30: number;
   };
 };
 
