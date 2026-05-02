@@ -291,6 +291,148 @@ export function getUpcomingBills() {
 }
 
 // ============================================================
+// BILL CLUSTER WARNING
+// ============================================================
+
+export type BillCluster = {
+  startDate: string; // YYYY-MM-DD
+  endDate: string;
+  totalOutflow: number; // cents
+  totalInflow: number;
+  billCount: number;
+  biggestBillName: string;
+  biggestBillAmount: number;
+};
+
+/**
+ * Detect the worst upcoming 7-day cash-crunch window in the next 30 days
+ * from active recurring_transactions. "Worst" = highest net-negative
+ * (outflows - inflows) cluster. Returns null if there's no concerning window.
+ */
+export function getUpcomingBillCluster(daysAhead: number = 30, windowSize: number = 7): BillCluster | null {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const horizon = new Date(today);
+  horizon.setDate(horizon.getDate() + daysAhead);
+
+  const recurring = db
+    .select({
+      id: schema.recurringTransactions.id,
+      merchant: schema.recurringTransactions.merchant,
+      amount: schema.recurringTransactions.amount,
+      frequency: schema.recurringTransactions.frequency,
+      nextDueDate: schema.recurringTransactions.nextDueDate,
+      groupName: schema.categoryGroups.name,
+    })
+    .from(schema.recurringTransactions)
+    .leftJoin(schema.categories, eq(schema.recurringTransactions.categoryId, schema.categories.id))
+    .leftJoin(schema.categoryGroups, eq(schema.categories.groupId, schema.categoryGroups.id))
+    .where(eq(schema.recurringTransactions.isActive, true))
+    .all();
+
+  // Bucket each scheduled occurrence into per-day in/out.
+  type DayBucket = { inflow: number; outflow: number; bills: { name: string; amount: number }[] };
+  const buckets = new Map<string, DayBucket>();
+  const ensureBucket = (key: string): DayBucket => {
+    let b = buckets.get(key);
+    if (!b) {
+      b = { inflow: 0, outflow: 0, bills: [] };
+      buckets.set(key, b);
+    }
+    return b;
+  };
+
+  for (const r of recurring) {
+    if (!r.nextDueDate) continue;
+    if (r.groupName === "Internal") continue;
+    const isIncome = r.groupName === "Income";
+
+    const occ = new Date(r.nextDueDate + "T00:00:00");
+    let iter = 0;
+    while (occ <= horizon && iter < 60) {
+      iter++;
+      if (occ >= today) {
+        const key = occ.toISOString().split("T")[0];
+        const b = ensureBucket(key);
+        if (isIncome) b.inflow += r.amount;
+        else {
+          b.outflow += r.amount;
+          b.bills.push({ name: r.merchant, amount: r.amount });
+        }
+      }
+      switch (r.frequency) {
+        case "weekly":
+          occ.setDate(occ.getDate() + 7);
+          break;
+        case "biweekly":
+          occ.setDate(occ.getDate() + 14);
+          break;
+        case "monthly":
+          occ.setMonth(occ.getMonth() + 1);
+          break;
+        case "yearly":
+          occ.setFullYear(occ.getFullYear() + 1);
+          break;
+        default:
+          occ.setTime(horizon.getTime() + 86400000);
+      }
+    }
+  }
+
+  // Slide a `windowSize`-day window across the next `daysAhead` days; find
+  // the window with the largest net-negative (outflow - inflow) total.
+  let worst: BillCluster | null = null;
+
+  for (let dayOffset = 0; dayOffset <= daysAhead - windowSize; dayOffset++) {
+    let outflow = 0;
+    let inflow = 0;
+    let billCount = 0;
+    let biggestName = "";
+    let biggestAmount = 0;
+
+    for (let i = 0; i < windowSize; i++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() + dayOffset + i);
+      const key = d.toISOString().split("T")[0];
+      const b = buckets.get(key);
+      if (!b) continue;
+      outflow += b.outflow;
+      inflow += b.inflow;
+      for (const bill of b.bills) {
+        billCount++;
+        if (bill.amount > biggestAmount) {
+          biggestAmount = bill.amount;
+          biggestName = bill.name;
+        }
+      }
+    }
+
+    const netNegative = outflow - inflow;
+    // Only flag windows that are meaningfully bad: outflow > $500 and net negative.
+    if (outflow < 50000) continue;
+    if (netNegative <= 0) continue;
+    if (worst !== null && netNegative <= worst.totalOutflow - worst.totalInflow) continue;
+
+    const start = new Date(today);
+    start.setDate(start.getDate() + dayOffset);
+    const end = new Date(today);
+    end.setDate(end.getDate() + dayOffset + windowSize - 1);
+
+    worst = {
+      startDate: start.toISOString().split("T")[0],
+      endDate: end.toISOString().split("T")[0],
+      totalOutflow: outflow,
+      totalInflow: inflow,
+      billCount,
+      biggestBillName: biggestName,
+      biggestBillAmount: biggestAmount,
+    };
+  }
+
+  return worst;
+}
+
+// ============================================================
 // SINCE-LAST-VISIT (delta strip on the home dashboard)
 // ============================================================
 
