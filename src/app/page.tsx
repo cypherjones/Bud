@@ -17,6 +17,7 @@ import {
   getTaxSummary,
   getUpcomingBills,
   getSinceLastVisit,
+  getTotalBalance,
 } from "@/lib/actions/dashboard";
 import { getSpendingVelocity, getSpendingByDay } from "@/lib/actions/reports";
 import { formatCurrency } from "@/lib/utils/format";
@@ -35,8 +36,15 @@ export default function DashboardPage() {
   const monthStart = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; })();
   const dailySpending = getSpendingByDay(monthStart, new Date().toISOString().split("T")[0]);
   const sinceLastVisit = getSinceLastVisit();
+  const balanceInfo = getTotalBalance();
 
-  const hasTransactions = metrics.spending > 0 || metrics.income > 0;
+  // Two distinct empty states:
+  //   - hasAccounts: any non-excluded bank account exists (regardless of whether
+  //     this month has transactions yet). Drives the "Connect accounts" placeholder.
+  //   - hasMonthData: at least one transaction in the current month. Drives whether
+  //     to show real $ values vs. the "month just started" subtitle.
+  const hasAccounts = balanceInfo.accountCount > 0;
+  const hasMonthData = metrics.spending > 0 || metrics.income > 0;
 
   const spendingTrend =
     metrics.prevSpending > 0
@@ -47,6 +55,13 @@ export default function DashboardPage() {
     metrics.prevIncome > 0
       ? Math.round(((metrics.income - metrics.prevIncome) / metrics.prevIncome) * 100)
       : null;
+
+  // For the "month just started" subtitle.
+  const monthName = new Date().toLocaleDateString("en-US", { month: "long" });
+  const dayOfMonth = new Date().getDate();
+  const monthEmptyHint = `${monthName} just started — sync to load`;
+  const monthEarlyHint = `${monthName} day ${dayOfMonth} — sync for the latest`;
+  const emptyMonthSubtitle = dayOfMonth <= 3 ? monthEmptyHint : monthEarlyHint;
 
   return (
     <div className="flex flex-col h-screen">
@@ -69,24 +84,42 @@ export default function DashboardPage() {
           <MetricCard
             title="Total Balance"
             icon={<Wallet className="w-5 h-5 text-primary" />}
-            value={hasTransactions ? formatCurrency(metrics.income - metrics.spending) : "--"}
-            subtitle={hasTransactions ? "This month net" : "Connect accounts to start"}
+            value={hasAccounts ? formatCurrency(balanceInfo.totalBalance) : "--"}
+            subtitle={
+              !hasAccounts
+                ? "Connect accounts to start"
+                : hasMonthData
+                  ? `${formatCurrency(metrics.income - metrics.spending)} net this month`
+                  : `Across ${balanceInfo.accountCount} accounts`
+            }
             trend={null}
           />
           <MetricCard
             title="Monthly Spending"
             icon={<TrendingDown className="w-5 h-5 text-red-500" />}
-            value={hasTransactions ? formatCurrency(metrics.spending) : "--"}
-            subtitle={hasTransactions ? "This month" : "No transactions yet"}
-            trend={spendingTrend}
+            value={hasAccounts ? formatCurrency(metrics.spending) : "--"}
+            subtitle={
+              !hasAccounts
+                ? "Connect accounts to start"
+                : hasMonthData
+                  ? "This month"
+                  : emptyMonthSubtitle
+            }
+            trend={hasMonthData ? spendingTrend : null}
             trendInverse
           />
           <MetricCard
             title="Monthly Income"
             icon={<TrendingUp className="w-5 h-5 text-green-500" />}
-            value={hasTransactions ? formatCurrency(metrics.income) : "--"}
-            subtitle={hasTransactions ? "This month" : "No transactions yet"}
-            trend={incomeTrend}
+            value={hasAccounts ? formatCurrency(metrics.income) : "--"}
+            subtitle={
+              !hasAccounts
+                ? "Connect accounts to start"
+                : hasMonthData
+                  ? "This month"
+                  : emptyMonthSubtitle
+            }
+            trend={hasMonthData ? incomeTrend : null}
           />
         </div>
 

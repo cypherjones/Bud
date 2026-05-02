@@ -3,7 +3,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils/format";
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
-import { TrendingUp, TrendingDown } from "lucide-react";
 
 type Props = {
   velocity: {
@@ -30,11 +29,13 @@ export function SpendingVelocity({ velocity, dailySpending }: Props) {
     };
   });
 
-  const paceLabel = velocity.totalBudget > 0
-    ? velocity.onTrack ? "Under budget pace" : "Over budget pace"
-    : `${velocity.daysRemaining} days left`;
-
-  const PaceIcon = velocity.onTrack === false ? TrendingUp : TrendingDown;
+  // No spending data this month yet — don't claim "Under budget pace" on $0.
+  const noDataYet = velocity.totalSpent === 0;
+  const paceLabel = noDataYet
+    ? `Day ${velocity.daysElapsed} of month — no data yet`
+    : velocity.totalBudget > 0
+      ? velocity.onTrack ? "Under budget pace" : "Over budget pace"
+      : `${velocity.daysRemaining} days left`;
 
   return (
     <Card>
@@ -53,9 +54,11 @@ export function SpendingVelocity({ velocity, dailySpending }: Props) {
             {paceLabel}
           </span>
         </div>
-        <p className="text-xs text-muted-foreground mt-1">
-          Projected: {formatCurrency(velocity.projectedMonthTotal)} this month
-        </p>
+        {!noDataYet && (
+          <p className="text-xs text-muted-foreground mt-1">
+            Projected: {formatCurrency(velocity.projectedMonthTotal)} this month
+          </p>
+        )}
 
         {cumulativeData.length > 2 && (
           <div className="mt-3">
