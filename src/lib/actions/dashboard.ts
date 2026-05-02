@@ -1,5 +1,6 @@
 import { db, schema } from "@/lib/db";
 import { eq, and, gte, lte, desc, sql, notInArray } from "drizzle-orm";
+import { getPayoffProjections } from "./debts";
 
 /** Category IDs that represent internal moves (transfers, round-ups), not real spending */
 function getInternalCategoryIds(): string[] {
@@ -190,6 +191,17 @@ export function getDebtSummary() {
     monthRecommended,
     monthActual,
     month,
+  };
+}
+
+/** Aggregate "debt-free by" — exposed for the dashboard widget. */
+export function getDebtFreeProjection(): { atMinimum: string | null; atRecommended: string | null; monthsAtMinimum: number | null; monthsAtRecommended: number | null } {
+  const p = getPayoffProjections();
+  return {
+    atMinimum: p.debtFreeAtMinimum,
+    atRecommended: p.debtFreeAtRecommended,
+    monthsAtMinimum: p.debtFreeMonthsAtMinimum,
+    monthsAtRecommended: p.debtFreeMonthsAtRecommended,
   };
 }
 

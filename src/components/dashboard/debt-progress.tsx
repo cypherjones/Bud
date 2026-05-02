@@ -19,9 +19,16 @@ type Props = {
   progress: number;
   monthRecommended?: number;
   monthActual?: number;
+  debtFreeAt?: string | null; // YYYY-MM
+  debtFreeMonths?: number | null;
 };
 
-export function DebtProgress({ debts, totalActive, totalOriginal, progress, monthRecommended = 0, monthActual = 0 }: Props) {
+function formatPayoffMonth(yearMonth: string): string {
+  const [y, m] = yearMonth.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
+export function DebtProgress({ debts, totalActive, totalOriginal, progress, monthRecommended = 0, monthActual = 0, debtFreeAt, debtFreeMonths }: Props) {
   if (debts.length === 0) {
     return (
       <Card>
@@ -54,6 +61,16 @@ export function DebtProgress({ debts, totalActive, totalOriginal, progress, mont
           </div>
           <Progress value={progress} className="h-3" />
         </div>
+
+        {/* Debt-free projection at current pace */}
+        {debtFreeAt && debtFreeMonths !== null && debtFreeMonths !== undefined && (
+          <div className="text-xs flex items-center justify-between text-muted-foreground">
+            <span>Debt-free at this pace</span>
+            <span className="font-medium text-foreground">
+              {formatPayoffMonth(debtFreeAt)} · {debtFreeMonths} mo
+            </span>
+          </div>
+        )}
 
         {/* This-month progress against the smart-allocation plan */}
         {monthRecommended > 0 && (
