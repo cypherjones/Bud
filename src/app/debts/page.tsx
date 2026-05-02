@@ -2,7 +2,7 @@ import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { formatCurrency } from "@/lib/utils/format";
 import { calculateDebtAllocation } from "@/lib/utils/debt-engine";
-import { getMonthlyAllocationVsActual } from "@/lib/actions/debts";
+import { getMonthlyAllocationVsActual, getPayoffProjections } from "@/lib/actions/debts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -98,6 +98,10 @@ export default function DebtsPage() {
   const monthVsActual = getMonthlyAllocationVsActual();
   const vsActualByDebt = new Map(monthVsActual.rows.map((r) => [r.debtId, r]));
 
+  // Per-debt and aggregate payoff projections.
+  const payoffProjections = getPayoffProjections();
+  const payoffByDebt = new Map(payoffProjections.rows.map((p) => [p.debtId, p]));
+
   return (
     <div className="flex flex-col h-screen">
       <header className="px-8 py-6 border-b border-border bg-card/50 flex items-center justify-between">
@@ -177,6 +181,8 @@ export default function DebtsPage() {
           </Card>
         </div>
 
+        <DebtFreeProjection projection={payoffProjections} />
+
         {/* Active debts */}
         {activeDebts.length > 0 && (
           <div className="space-y-4">
@@ -200,6 +206,7 @@ export default function DebtsPage() {
                     : null;
 
                 const monthRow = vsActualByDebt.get(debt.id);
+                const payoff = payoffByDebt.get(debt.id);
 
                 return (
                   <Card key={debt.id}>
@@ -288,6 +295,8 @@ export default function DebtsPage() {
                       {monthRow && monthRow.recommended > 0 && (
                         <MonthVsActualStrip row={monthRow} />
                       )}
+
+                      {payoff && <PayoffProjection projection={payoff} />}
 
                       {debt.dueDay && (
                         <p className="text-xs text-muted-foreground">
@@ -508,5 +517,107 @@ function MonthVsActualStrip({
         <span>of {formatCurrency(row.recommended)} recommended</span>
       </div>
     </div>
+  );
+}
+
+function formatPayoffDate(yearMonth: string): string {
+  const [y, m] = yearMonth.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
+function PayoffProjection({
+  projection,
+}: {
+  projection: {
+    monthsAtMinimum: number | null;
+    payoffAtMinimum: string | null;
+    monthsAtRecommended: number | null;
+    payoffAtRecommended: string | null;
+    recommendedPayment: number;
+    currentBalance: number;
+  };
+}) {
+  if (projection.monthsAtMinimum === null && projection.monthsAtRecommended === null) {
+    return (
+      <div className="rounded-md border border-red-300 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+        Minimum payment doesn&apos;t cover monthly interest — balance grows over time.
+      </div>
+    );
+  }
+
+  const minLabel =
+    projection.monthsAtMinimum !== null && projection.payoffAtMinimum
+      ? `${projection.monthsAtMinimum} mo (${formatPayoffDate(projection.payoffAtMinimum)})`
+      : "—";
+
+  const showRec =
+    projection.monthsAtRecommended !== null &&
+    projection.payoffAtRecommended &&
+    projection.monthsAtRecommended !== projection.monthsAtMinimum;
+
+  return (
+    <div className="rounded-md bg-muted/40 px-3 py-2 text-xs flex items-center justify-between">
+      <span className="text-muted-foreground">Payoff at min</span>
+      <span className="font-medium">{minLabel}</span>
+      {showRec && (
+        <>
+          <span className="text-muted-foreground ml-3">at recommended</span>
+          <span className="font-medium text-emerald-500">
+            {projection.monthsAtRecommended} mo ({formatPayoffDate(projection.payoffAtRecommended!)})
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
+function DebtFreeProjection({
+  projection,
+}: {
+  projection: {
+    debtFreeMonthsAtMinimum: number | null;
+    debtFreeAtMinimum: string | null;
+    debtFreeMonthsAtRecommended: number | null;
+    debtFreeAtRecommended: string | null;
+  };
+}) {
+  if (
+    projection.debtFreeAtMinimum === null &&
+    projection.debtFreeAtRecommended === null
+  ) {
+    return null;
+  }
+
+  const minLabel =
+    projection.debtFreeAtMinimum && projection.debtFreeMonthsAtMinimum !== null
+      ? `${formatPayoffDate(projection.debtFreeAtMinimum)} (${projection.debtFreeMonthsAtMinimum} months)`
+      : "—";
+
+  const showRec =
+    projection.debtFreeAtRecommended &&
+    projection.debtFreeMonthsAtRecommended !== null &&
+    projection.debtFreeMonthsAtRecommended !== projection.debtFreeMonthsAtMinimum;
+
+  return (
+    <Card className="border-purple-200 dark:border-purple-900 bg-purple-50/40 dark:bg-purple-950/20">
+      <CardContent className="py-3 px-4">
+        <div className="flex items-center justify-between gap-4 text-sm">
+          <div>
+            <p className="text-xs text-muted-foreground">Debt-free at minimums</p>
+            <p className="font-semibold">{minLabel}</p>
+          </div>
+          {showRec && (
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground">At smart-allocation pace</p>
+              <p className="font-semibold text-emerald-500">
+                {formatPayoffDate(projection.debtFreeAtRecommended!)}
+                {" · "}
+                {projection.debtFreeMonthsAtRecommended} months
+              </p>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

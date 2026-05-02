@@ -2,7 +2,7 @@ import { db, schema } from "@/lib/db";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { newId } from "@/lib/utils/ids";
 import { now, today, parseDollarsToCents } from "@/lib/utils/format";
-import { calculateDebtAllocation } from "@/lib/utils/debt-engine";
+import { calculateDebtAllocation, monthsToPayoff, addMonths } from "@/lib/utils/debt-engine";
 
 // ============================================================
 // LOG PAYMENT
@@ -325,6 +325,89 @@ export function getMonthlyAllocationVsActual(month?: string): AllocationVsActual
   const totalActual = rows.reduce((s, r) => s + r.actualPaid, 0);
 
   return { month: mon, totalRecommended, totalActual, rows };
+}
+
+// ============================================================
+// PAYOFF PROJECTIONS
+// ============================================================
+
+export type DebtPayoffProjection = {
+  debtId: string;
+  creditorName: string;
+  currentBalance: number; // cents
+  // Months / payoff date when paying only the minimum.
+  monthsAtMinimum: number | null;
+  payoffAtMinimum: string | null; // YYYY-MM
+  // Same but using the smart allocation's recommended payment for this month.
+  monthsAtRecommended: number | null;
+  payoffAtRecommended: string | null;
+  recommendedPayment: number; // cents (defaults to minimum if no allocation)
+};
+
+export type AggregatePayoffProjection = {
+  rows: DebtPayoffProjection[];
+  // The longest individual payoff among active debts — when "all debt is gone"
+  // assuming each debt sticks to its current pace.
+  debtFreeMonthsAtMinimum: number | null;
+  debtFreeAtMinimum: string | null;
+  debtFreeMonthsAtRecommended: number | null;
+  debtFreeAtRecommended: string | null;
+};
+
+function formatYearMonth(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export function getPayoffProjections(): AggregatePayoffProjection {
+  const activeDebts = db
+    .select()
+    .from(schema.debts)
+    .where(eq(schema.debts.status, "active"))
+    .all();
+
+  // Pull this-month's allocations to compute recommended-payment payoff dates.
+  const d = new Date();
+  const month = formatYearMonth(d);
+  const allocations = db
+    .select()
+    .from(schema.debtAllocations)
+    .where(eq(schema.debtAllocations.month, month))
+    .all();
+  const allocByDebt = new Map(allocations.map((a) => [a.debtId, a.recommendedAmount]));
+
+  const rows: DebtPayoffProjection[] = activeDebts
+    .filter((debt) => debt.currentBalance > 0)
+    .map((debt) => {
+      const minMonths = monthsToPayoff(debt.currentBalance, debt.minimumPayment, debt.interestRate);
+      const recommendedPayment = allocByDebt.get(debt.id) ?? debt.minimumPayment;
+      const recMonths = monthsToPayoff(debt.currentBalance, recommendedPayment, debt.interestRate);
+
+      return {
+        debtId: debt.id,
+        creditorName: debt.creditorName,
+        currentBalance: debt.currentBalance,
+        monthsAtMinimum: minMonths,
+        payoffAtMinimum: minMonths !== null ? formatYearMonth(addMonths(minMonths)) : null,
+        monthsAtRecommended: recMonths,
+        payoffAtRecommended: recMonths !== null ? formatYearMonth(addMonths(recMonths)) : null,
+        recommendedPayment,
+      };
+    });
+
+  // Aggregate "debt-free by" = longest individual payoff, in months.
+  // If any debt has null months (payment doesn't cover interest), the aggregate is also null.
+  const minMonthsList = rows.map((r) => r.monthsAtMinimum);
+  const recMonthsList = rows.map((r) => r.monthsAtRecommended);
+  const aggregateMin = minMonthsList.includes(null) ? null : Math.max(0, ...(minMonthsList as number[]));
+  const aggregateRec = recMonthsList.includes(null) ? null : Math.max(0, ...(recMonthsList as number[]));
+
+  return {
+    rows,
+    debtFreeMonthsAtMinimum: aggregateMin,
+    debtFreeAtMinimum: aggregateMin !== null ? formatYearMonth(addMonths(aggregateMin)) : null,
+    debtFreeMonthsAtRecommended: aggregateRec,
+    debtFreeAtRecommended: aggregateRec !== null ? formatYearMonth(addMonths(aggregateRec)) : null,
+  };
 }
 
 /** Parse "$1,234.56" → 123456 (cents). Defensive for weird formatting. */

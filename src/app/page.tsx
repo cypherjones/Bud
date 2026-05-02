@@ -18,6 +18,7 @@ import {
   getUpcomingBills,
   getSinceLastVisit,
   getTotalBalance,
+  getDebtFreeProjection,
 } from "@/lib/actions/dashboard";
 import { getSpendingVelocity, getSpendingByDay } from "@/lib/actions/reports";
 import { formatCurrency } from "@/lib/utils/format";
@@ -37,6 +38,7 @@ export default function DashboardPage() {
   const dailySpending = getSpendingByDay(monthStart, new Date().toISOString().split("T")[0]);
   const sinceLastVisit = getSinceLastVisit();
   const balanceInfo = getTotalBalance();
+  const debtFree = getDebtFreeProjection();
 
   // Two distinct empty states:
   //   - hasAccounts: any non-excluded bank account exists (regardless of whether
@@ -134,6 +136,8 @@ export default function DashboardPage() {
             progress={debtData.progress}
             monthRecommended={debtData.monthRecommended}
             monthActual={debtData.monthActual}
+            debtFreeAt={debtFree.atRecommended ?? debtFree.atMinimum}
+            debtFreeMonths={debtFree.monthsAtRecommended ?? debtFree.monthsAtMinimum}
           />
         </div>
 

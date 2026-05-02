@@ -229,6 +229,35 @@ function buildReasoning(
   return reasons.join(". ") + ".";
 }
 
+/**
+ * Months until a debt with given balance is paid off, paying monthlyPayment
+ * at annualRate (decimal, e.g. 0.22 for 22%). Accounts for interest.
+ *
+ * Returns null when the payment doesn't cover the monthly interest accrual
+ * (i.e. balance never goes down).
+ */
+export function monthsToPayoff(balance: number, monthlyPayment: number, annualRate: number): number | null {
+  if (balance <= 0) return 0;
+  if (monthlyPayment <= 0) return null;
+  const monthlyRate = annualRate / 12;
+  if (monthlyRate <= 0) {
+    return Math.ceil(balance / monthlyPayment);
+  }
+  const monthlyInterest = balance * monthlyRate;
+  if (monthlyPayment <= monthlyInterest) return null; // never pays down
+
+  // Closed-form amortization: n = -log(1 - B*i/P) / log(1+i)
+  const n = -Math.log(1 - (balance * monthlyRate) / monthlyPayment) / Math.log(1 + monthlyRate);
+  return Math.ceil(n);
+}
+
+/** Add `months` months to today and return the resulting Date. */
+export function addMonths(months: number): Date {
+  const d = new Date();
+  d.setMonth(d.getMonth() + months);
+  return d;
+}
+
 function buildProjectedImpact(
   allocations: { debt: Debt; extraPayment: number }[],
   surplus: number
