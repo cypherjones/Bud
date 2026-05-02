@@ -150,6 +150,9 @@ export default async function GoalsPage() {
                         )}
                       </p>
                     )}
+                    {remaining > 0 && goal.targetDate && (
+                      <PaceLine remaining={remaining} targetDate={goal.targetDate} />
+                    )}
                   </CardContent>
                 </Card>
               );
@@ -157,6 +160,45 @@ export default async function GoalsPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Required-monthly-contribution line shown under each goal that has a target
+ * date. Pure math — no contribution-history tracking yet, so we don't try to
+ * project "at current pace, you'll hit it on [date]."
+ */
+function PaceLine({ remaining, targetDate }: { remaining: number; targetDate: string }) {
+  const target = new Date(targetDate + "T00:00:00");
+  const now = new Date();
+  const monthsRemaining =
+    (target.getFullYear() - now.getFullYear()) * 12 +
+    (target.getMonth() - now.getMonth()) +
+    (target.getDate() >= now.getDate() ? 0 : -1);
+
+  if (monthsRemaining <= 0) {
+    return (
+      <div className="rounded-md bg-red-50/60 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+        Past target date — set a new one or log progress to update.
+      </div>
+    );
+  }
+
+  const requiredPerMonth = Math.ceil(remaining / monthsRemaining);
+  const requiredPerWeek = Math.ceil(requiredPerMonth / 4.345);
+
+  return (
+    <div className="rounded-md bg-muted/40 px-3 py-2 text-xs space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-muted-foreground">Pace to hit target</span>
+        <span className="font-medium">
+          {formatCurrency(requiredPerMonth)}/mo · {formatCurrency(requiredPerWeek)}/wk
+        </span>
+      </div>
+      <p className="text-muted-foreground">
+        {monthsRemaining} {monthsRemaining === 1 ? "month" : "months"} remaining
+      </p>
     </div>
   );
 }
