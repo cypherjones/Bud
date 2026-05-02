@@ -27,7 +27,31 @@ function getExcludedAccountIds(): string[] {
     .map((a) => a.id);
 }
 
-export { getInternalCategoryIds, getExcludedAccountIds };
+/** Sum of current balances on non-excluded accounts (the user's actual liquid total). */
+function getTotalBalance(): { totalBalance: number; accountCount: number; lastSyncedAt: string | null } {
+  const accounts = db
+    .select({
+      id: schema.accounts.id,
+      balance: schema.accounts.balance,
+      lastSynced: schema.accounts.lastSynced,
+      excludeFromReports: schema.accounts.excludeFromReports,
+    })
+    .from(schema.accounts)
+    .all();
+
+  const visible = accounts.filter((a) => !a.excludeFromReports);
+  const totalBalance = visible.reduce((s, a) => s + (a.balance ?? 0), 0);
+  // Most recent lastSynced across visible accounts — useful to show "as of [time]" subtitle.
+  const lastSyncedAt = visible
+    .map((a) => a.lastSynced)
+    .filter((s): s is string => !!s)
+    .sort()
+    .pop() ?? null;
+
+  return { totalBalance, accountCount: visible.length, lastSyncedAt };
+}
+
+export { getInternalCategoryIds, getExcludedAccountIds, getTotalBalance };
 
 function getMonthStart(): string {
   const d = new Date();
