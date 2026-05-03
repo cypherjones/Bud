@@ -1,6 +1,7 @@
 import { db, schema } from "@/lib/db";
 import { desc, eq, and, gte, notInArray } from "drizzle-orm";
-import { getExcludedAccountIds } from "@/lib/actions/dashboard";
+import { getExcludedAccountIds, getActiveReportingMonth } from "@/lib/actions/dashboard";
+import { EmptyMonthBanner } from "@/components/dashboard/empty-month-banner";
 import { formatCurrency } from "@/lib/utils/format";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -52,9 +53,12 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   const range = params.range;
   const categoryFilter = params.category;
 
-  // Build query conditions
+  // Build query conditions. When the user hasn't picked a range, default to
+  // the active reporting month — this is current month if it has data, prior
+  // month otherwise. Avoids the "first day of month → empty list" trap.
+  const activeMonth = !range || range === "this-month" ? getActiveReportingMonth() : null;
   const conditions = [];
-  const startDate = getDateRange(range);
+  const startDate = activeMonth ? activeMonth.monthStart : getDateRange(range);
   if (startDate) {
     conditions.push(gte(schema.transactions.date, startDate));
   }
@@ -164,6 +168,10 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
         </div>
       </header>
       <div className="flex-1 overflow-auto p-8 space-y-6">
+        {activeMonth?.isFallback && activeMonth.fallbackReason && (
+          <EmptyMonthBanner reason={activeMonth.fallbackReason} />
+        )}
+
         <DuplicateReviewPanel candidates={duplicateCandidates} />
 
         {/* Filters */}

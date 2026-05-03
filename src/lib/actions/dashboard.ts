@@ -63,6 +63,63 @@ function getToday(): string {
   return new Date().toISOString().split("T")[0];
 }
 
+/**
+ * Returns the month that report/dashboard surfaces should default to.
+ * Prefers the current month; falls back to the prior month when the current
+ * month has no non-Internal, non-excluded transactions yet (e.g. on the first
+ * few days of a new month before a sync brings in fresh data).
+ */
+export type ActiveReportingMonth = {
+  monthStart: string; // "YYYY-MM-01"
+  monthEnd: string; // "YYYY-MM-DD" last day of month
+  monthLabel: string; // "May 2026"
+  isFallback: boolean;
+  fallbackReason?: string;
+};
+
+export function getActiveReportingMonth(): ActiveReportingMonth {
+  const today = new Date();
+  const currentMonthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
+  const currentMonthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split("T")[0];
+  const currentLabel = today.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  const internalCats = getInternalCategoryIds();
+  const excludedAccounts = getExcludedAccountIds();
+
+  const currentCount = db
+    .select({ c: sql<number>`COUNT(*)` })
+    .from(schema.transactions)
+    .where(and(
+      gte(schema.transactions.date, currentMonthStart),
+      internalCats.length > 0 ? notInArray(schema.transactions.categoryId, internalCats) : undefined,
+      excludedAccounts.length > 0 ? notInArray(schema.transactions.accountId, excludedAccounts) : undefined,
+    ))
+    .get();
+
+  if ((currentCount?.c ?? 0) > 0) {
+    return {
+      monthStart: currentMonthStart,
+      monthEnd: currentMonthEnd,
+      monthLabel: currentLabel,
+      isFallback: false,
+    };
+  }
+
+  const priorD = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const priorMonthStart = `${priorD.getFullYear()}-${String(priorD.getMonth() + 1).padStart(2, "0")}-01`;
+  const priorMonthEnd = new Date(priorD.getFullYear(), priorD.getMonth() + 1, 0).toISOString().split("T")[0];
+  const priorLabel = priorD.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const currentMonthName = today.toLocaleDateString("en-US", { month: "long" });
+
+  return {
+    monthStart: priorMonthStart,
+    monthEnd: priorMonthEnd,
+    monthLabel: priorLabel,
+    isFallback: true,
+    fallbackReason: `${currentMonthName} has no synced data yet — showing ${priorLabel}. Sync to load ${currentMonthName}.`,
+  };
+}
+
 export function getMetrics() {
   const monthStart = getMonthStart();
   const internalCats = getInternalCategoryIds();

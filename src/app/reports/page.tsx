@@ -8,23 +8,26 @@ import {
   getSpendingByDay,
   getSpendingVelocity,
 } from "@/lib/actions/reports";
+import { getActiveReportingMonth } from "@/lib/actions/dashboard";
 import { ReportTabs } from "@/components/reports/report-tabs";
+import { EmptyMonthBanner } from "@/components/dashboard/empty-month-banner";
 
 export const dynamic = "force-dynamic";
 
 export default async function ReportsPage() {
-  const monthStart = (() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
-  })();
-  const today = new Date().toISOString().split("T")[0];
+  const activeMonth = getActiveReportingMonth();
 
-  const monthlySummary = getMonthlySummary();
+  // Monthly Summary, Spending-by-Day, and Frivolous accept a startDate / monthStart
+  // override and respect the fallback. Velocity, CashFlowForecast, etc. are
+  // current-month-bound — when the active month is the current month they show
+  // the same view; when we fall back to prior month the cards may show 0
+  // because the helpers compute "this month so far." That's noted in the banner.
+  const monthlySummary = getMonthlySummary(activeMonth.monthStart);
   const velocity = getSpendingVelocity();
-  const dailySpending = getSpendingByDay(monthStart, today);
+  const dailySpending = getSpendingByDay(activeMonth.monthStart, activeMonth.monthEnd);
   const subscriptions = getSubscriptionAudit();
   const taxDeductions = getTaxDeductions();
-  const frivolous = getFrivolousSpending();
+  const frivolous = getFrivolousSpending(activeMonth.monthStart);
   const categoryTrends = getCategoryTrends(3);
   const cashFlow = getCashFlowForecast(30);
 
@@ -33,10 +36,13 @@ export default async function ReportsPage() {
       <header className="px-8 py-6 border-b border-border bg-card/50">
         <h1 className="text-2xl font-bold tracking-tight">Reports</h1>
         <p className="text-sm text-muted-foreground">
-          Actionable insights into your finances
+          Actionable insights — {activeMonth.monthLabel}
         </p>
       </header>
-      <div className="flex-1 overflow-auto p-8">
+      <div className="flex-1 overflow-auto p-8 space-y-4">
+        {activeMonth.isFallback && activeMonth.fallbackReason && (
+          <EmptyMonthBanner reason={activeMonth.fallbackReason} />
+        )}
         <ReportTabs
           monthlySummary={monthlySummary}
           velocity={velocity}

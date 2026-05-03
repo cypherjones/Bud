@@ -1,4 +1,5 @@
 import { getBudgetOverview, getBudgetSummary } from "@/lib/actions/budget";
+import { getActiveReportingMonth } from "@/lib/actions/dashboard";
 import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { formatCurrency } from "@/lib/utils/format";
@@ -6,12 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { BudgetCategoryRow } from "@/components/budget/budget-category-row";
 import { AddBudgetRow } from "@/components/budget/add-budget-row";
+import { EmptyMonthBanner } from "@/components/dashboard/empty-month-banner";
 
 export const dynamic = "force-dynamic";
 
 export default async function BudgetPage() {
-  const overview = getBudgetOverview();
-  const summary = getBudgetSummary();
+  const activeMonth = getActiveReportingMonth();
+  const overview = getBudgetOverview(activeMonth.monthStart);
+  const summary = getBudgetSummary(activeMonth.monthStart);
 
   // Get all categories with groups for the "add budget" dropdown
   const allCategories = await db
@@ -44,10 +47,14 @@ export default async function BudgetPage() {
       <header className="px-8 py-6 border-b border-border bg-card/50">
         <h1 className="text-2xl font-bold tracking-tight">Budget</h1>
         <p className="text-sm text-muted-foreground">
-          Monthly budget vs actual spending
+          Budget vs actual spending — {activeMonth.monthLabel}
         </p>
       </header>
       <div className="flex-1 overflow-auto p-8 space-y-6">
+        {activeMonth.isFallback && activeMonth.fallbackReason && (
+          <EmptyMonthBanner reason={activeMonth.fallbackReason} />
+        )}
+
         {/* Summary Cards */}
         {hasBudgets && (
           <>
