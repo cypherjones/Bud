@@ -227,6 +227,17 @@ export const budTools: Tool[] = [
     },
   },
 
+  {
+    name: "summarize_tax_situation",
+    description:
+      "Get a snapshot of all tax obligations: total owed, paid year-to-date, next due date, and per-obligation status (active/paid). Use this when the user asks 'how am I doing on taxes' or wants concrete numbers — not generic advice. Returns specific dollar amounts and dates.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [],
+    },
+  },
+
   // === FINANCIAL PLAN TOOLS ===
   {
     name: "create_financial_plan",
