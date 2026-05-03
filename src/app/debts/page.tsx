@@ -284,13 +284,19 @@ export default function DebtsPage() {
                         )}
                       </div>
 
-                      <div>
-                        <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                          <span>Payoff progress</span>
-                          <span>{payoffPct}%</span>
+                      {/* Payoff-progress bar only makes sense for installment loans
+                          where we actually have an original loan amount that's
+                          larger than the current balance. Credit cards are
+                          revolving — their "original" doesn't mean anything. */}
+                      {debt.type !== "credit_card" && debt.originalBalance > debt.currentBalance && (
+                        <div>
+                          <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                            <span>Payoff progress</span>
+                            <span>{payoffPct}%</span>
+                          </div>
+                          <Progress value={payoffPct} className="h-2" />
                         </div>
-                        <Progress value={payoffPct} className="h-2" />
-                      </div>
+                      )}
 
                       {monthRow && monthRow.recommended > 0 && (
                         <MonthVsActualStrip row={monthRow} />
