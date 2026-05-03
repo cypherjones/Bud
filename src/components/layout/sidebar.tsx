@@ -14,6 +14,7 @@ import {
   PiggyBank,
   FileBarChart,
   CalendarDays,
+  Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +25,7 @@ const navItems = [
   { href: "/reports", icon: FileBarChart, label: "Reports" },
   { href: "/schedule", icon: CalendarDays, label: "Schedule" },
   { href: "/debts", icon: CreditCard, label: "Debts" },
+  { href: "/tax", icon: Receipt, label: "Tax" },
   { href: "/move-planner", icon: MapPin, label: "Move Planner" },
   { href: "/goals", icon: Target, label: "Savings" },
   { href: "/credit", icon: TrendingUp, label: "Credit" },

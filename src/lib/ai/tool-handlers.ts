@@ -5,6 +5,7 @@ import { now, today, formatCurrency, parseDollarsToCents } from "@/lib/utils/for
 import { calculateDebtAllocation } from "@/lib/utils/debt-engine";
 import { createTransaction, findAccountByQuery } from "@/lib/actions/transactions";
 import { getMonthlyAllocationVsActual } from "@/lib/actions/debts";
+import { getTaxOverview } from "@/lib/actions/taxes";
 
 type ToolInput = Record<string, unknown>;
 
@@ -33,6 +34,8 @@ export async function handleToolCall(
       return handleGetDebtAllocation(input);
     case "summarize_debt_month":
       return handleSummarizeDebtMonth(input);
+    case "summarize_tax_situation":
+      return handleSummarizeTaxSituation();
     case "create_financial_plan":
       return handleCreateFinancialPlan(input);
     case "add_plan_line_item":
@@ -473,6 +476,63 @@ function handleSummarizeDebtMonth(input: ToolInput): string {
     total_actual: formatCurrency(summary.totalActual),
     aggregate_narration: aggregate,
     rows,
+  });
+}
+
+function handleSummarizeTaxSituation(): string {
+  const overview = getTaxOverview();
+
+  if (overview.active.length === 0 && overview.paid.length === 0) {
+    return JSON.stringify({
+      message: "No tax obligations on file. Add one via the Tax page or 'add a tax obligation' in chat.",
+    });
+  }
+
+  const rows = overview.active.map((o) => {
+    const narration =
+      o.remainingBalance === 0
+        ? `${o.agency} ${o.taxYear}: paid in full.`
+        : o.dueDate
+          ? `${o.agency} ${o.taxYear} (${o.type.replace(/_/g, " ")}): ${formatCurrency(o.remainingBalance)} remaining of ${formatCurrency(o.originalAmount)} (${o.pctPaid}% paid). Due ${o.dueDate}.${o.isInstallmentPlan && o.installmentAmount ? ` Installment plan: ${formatCurrency(o.installmentAmount)}/mo.` : ""}`
+          : `${o.agency} ${o.taxYear} (${o.type.replace(/_/g, " ")}): ${formatCurrency(o.remainingBalance)} remaining of ${formatCurrency(o.originalAmount)} (${o.pctPaid}% paid). No due date set.`;
+    return {
+      id: o.id,
+      agency: o.agency,
+      tax_year: o.taxYear,
+      type: o.type,
+      remaining: formatCurrency(o.remainingBalance),
+      original: formatCurrency(o.originalAmount),
+      paid_pct: o.pctPaid,
+      due_date: o.dueDate,
+      installment_plan: o.isInstallmentPlan,
+      installment_amount: o.installmentAmount ? formatCurrency(o.installmentAmount) : null,
+      penalty_rate: o.penaltyRate,
+      narration,
+    };
+  });
+
+  const aggregateParts = [
+    `${formatCurrency(overview.totalOwed)} owed across ${overview.active.length} active ${overview.active.length === 1 ? "obligation" : "obligations"}.`,
+    `${formatCurrency(overview.totalPaidYTD)} paid year-to-date in ${new Date().getFullYear()}.`,
+  ];
+  if (overview.nextDue) {
+    aggregateParts.push(`Next due: ${overview.nextDue.agency} ${overview.nextDue.taxYear} on ${overview.nextDue.dueDate}.`);
+  }
+
+  return JSON.stringify({
+    total_owed: formatCurrency(overview.totalOwed),
+    total_paid_ytd: formatCurrency(overview.totalPaidYTD),
+    next_due: overview.nextDue
+      ? {
+          agency: overview.nextDue.agency,
+          tax_year: overview.nextDue.taxYear,
+          due_date: overview.nextDue.dueDate,
+          amount: formatCurrency(overview.nextDue.installmentAmount ?? overview.nextDue.remainingBalance),
+        }
+      : null,
+    aggregate_narration: aggregateParts.join(" "),
+    active: rows,
+    paid_count: overview.paid.length,
   });
 }
 
