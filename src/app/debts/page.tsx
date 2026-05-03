@@ -298,6 +298,14 @@ export default function DebtsPage() {
 
                       {payoff && <PayoffProjection projection={payoff} />}
 
+                      {debt.nextActionDeadline && debt.nextActionAmount !== null && (
+                        <NextActionStrip
+                          deadline={debt.nextActionDeadline}
+                          amount={debt.nextActionAmount}
+                          note={debt.nextActionNote}
+                        />
+                      )}
+
                       {debt.dueDay && (
                         <p className="text-xs text-muted-foreground">
                           Due on the {ordinal(debt.dueDay)} of each month
@@ -567,6 +575,45 @@ function PayoffProjection({
           </span>
         </>
       )}
+    </div>
+  );
+}
+
+function NextActionStrip({
+  deadline,
+  amount,
+  note,
+}: {
+  deadline: string;
+  amount: number;
+  note: string | null;
+}) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(deadline + "T00:00:00");
+  const daysAway = Math.ceil((due.getTime() - today.getTime()) / 86400000);
+  const isPastDue = daysAway < 0;
+  const tone = isPastDue
+    ? "border-red-300 bg-red-50/60 dark:border-red-900 dark:bg-red-950/30"
+    : daysAway <= 7
+      ? "border-amber-300 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/30"
+      : "border-blue-300 bg-blue-50/60 dark:border-blue-900 dark:bg-blue-950/30";
+  const dayLabel = isPastDue
+    ? `${Math.abs(daysAway)} ${Math.abs(daysAway) === 1 ? "day" : "days"} past due`
+    : daysAway === 0
+      ? "today"
+      : `in ${daysAway} ${daysAway === 1 ? "day" : "days"}`;
+  return (
+    <div className={`rounded-md border px-3 py-2 text-xs space-y-1 ${tone}`}>
+      <div className="flex items-center justify-between">
+        <span className="font-medium">Next action</span>
+        <span className="font-medium">
+          {formatCurrency(amount)} by{" "}
+          {new Date(deadline + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}{" "}
+          ({dayLabel})
+        </span>
+      </div>
+      {note && <p className="text-muted-foreground">{note}</p>}
     </div>
   );
 }

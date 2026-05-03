@@ -8,6 +8,8 @@ import { TaxStatusCard } from "@/components/dashboard/tax-status-card";
 import { SpendingVelocity } from "@/components/dashboard/spending-velocity";
 import { SinceLastVisitStrip } from "@/components/dashboard/since-last-visit-strip";
 import { BillClusterBanner } from "@/components/dashboard/bill-cluster-banner";
+import { DebtDeadlineBanner } from "@/components/dashboard/debt-deadline-banner";
+import { getUpcomingDebtDeadlines } from "@/lib/actions/debts";
 import { Wallet, TrendingDown, TrendingUp } from "lucide-react";
 import {
   getMetrics,
@@ -42,6 +44,7 @@ export default function DashboardPage() {
   const balanceInfo = getTotalBalance();
   const debtFree = getDebtFreeProjection();
   const billCluster = getUpcomingBillCluster();
+  const debtDeadlines = getUpcomingDebtDeadlines();
 
   // Two distinct empty states:
   //   - hasAccounts: any non-excluded bank account exists (regardless of whether
@@ -82,6 +85,7 @@ export default function DashboardPage() {
       <div className="flex-1 overflow-auto p-8">
         <div className="mb-6 space-y-3">
           <SinceLastVisitStrip {...sinceLastVisit} />
+          <DebtDeadlineBanner deadlines={debtDeadlines} />
           <BillClusterBanner cluster={billCluster} />
         </div>
 

@@ -416,3 +416,56 @@ function parsePaymentString(s: string): number {
   if (!Number.isFinite(numeric)) return 0;
   return Math.round(numeric * 100);
 }
+
+// ============================================================
+// DEBT DEADLINES (next-action callouts)
+// ============================================================
+
+export type DebtDeadline = {
+  debtId: string;
+  creditorName: string;
+  deadline: string; // YYYY-MM-DD
+  amount: number; // cents
+  note: string | null;
+  daysAway: number; // negative if past
+};
+
+/**
+ * Active debts with a next_action_deadline within `withinDays` days from
+ * today (default 14). Past-due deadlines are also included so the user
+ * can't ignore them. Sorted by deadline ascending.
+ */
+export function getUpcomingDebtDeadlines(withinDays: number = 14): DebtDeadline[] {
+  const debts = db
+    .select({
+      id: schema.debts.id,
+      creditorName: schema.debts.creditorName,
+      deadline: schema.debts.nextActionDeadline,
+      amount: schema.debts.nextActionAmount,
+      note: schema.debts.nextActionNote,
+      status: schema.debts.status,
+    })
+    .from(schema.debts)
+    .all();
+
+  const now = Date.now();
+  const horizonMs = now + withinDays * 86400000;
+  const out: DebtDeadline[] = [];
+  for (const d of debts) {
+    if (d.status !== "active") continue;
+    if (!d.deadline || d.amount === null || d.amount === undefined) continue;
+    const t = new Date(d.deadline + "T00:00:00").getTime();
+    if (t > horizonMs) continue;
+    const daysAway = Math.ceil((t - now) / 86400000);
+    out.push({
+      debtId: d.id,
+      creditorName: d.creditorName,
+      deadline: d.deadline,
+      amount: d.amount,
+      note: d.note,
+      daysAway,
+    });
+  }
+  out.sort((a, b) => a.deadline.localeCompare(b.deadline));
+  return out;
+}
