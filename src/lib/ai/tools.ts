@@ -228,6 +228,18 @@ export const budTools: Tool[] = [
   },
 
   {
+    name: "morning_brief",
+    description:
+      "Daily-digest view: total balance, last-24h activity, today's scheduled bills, active deadlines within 7 days, and the single highest-priority recommended action right now. Use when the user says 'good morning,' 'what's new,' 'brief me,' or similar opening prompts. Produces specific dollar/date answers — narrate concisely.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "weekly_review",
+    description:
+      "Past 7 days vs plan: actual spending and income totals, debt payments logged, deadlines hit or missed, plus next week's expected bill cluster. Returns variances against the smart-allocation plan and a recommended adjustment. Use when the user asks 'how was last week,' 'weekly check-in,' or 'review the week.'",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
     name: "summarize_tax_situation",
     description:
       "Get a snapshot of all tax obligations: total owed, paid year-to-date, next due date, and per-obligation status (active/paid). Use this when the user asks 'how am I doing on taxes' or wants concrete numbers — not generic advice. Returns specific dollar amounts and dates.",
