@@ -249,6 +249,18 @@ export const budTools: Tool[] = [
       required: [],
     },
   },
+  {
+    name: "suggest_savings_cuts",
+    description:
+      "Get a ranked list of spending cuts that would free cash toward the user's savings target. Combines active subscriptions (sorted by monthly cost) with #frivolous-tagged transactions (sorted by total). Each item carries monthly + annual impact. Also returns the user's current savings target so you can phrase recommendations as 'cancel these N items to add $X/mo and close Y% of your gap.' Use when the user asks 'what should I cut?' or 'how do I hit my savings target?'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        max_items: { type: "number", description: "Maximum cut candidates to return (default 10)." },
+      },
+      required: [],
+    },
+  },
 
   // === FINANCIAL PLAN TOOLS ===
   {

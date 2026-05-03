@@ -6,7 +6,8 @@ import { calculateDebtAllocation } from "@/lib/utils/debt-engine";
 import { createTransaction, findAccountByQuery } from "@/lib/actions/transactions";
 import { getMonthlyAllocationVsActual, getUpcomingDebtDeadlines } from "@/lib/actions/debts";
 import { getTaxOverview } from "@/lib/actions/taxes";
-import { getTotalBalance, getDebtSummary, getUpcomingBillCluster, getSavingsTarget, getMetrics } from "@/lib/actions/dashboard";
+import { getTotalBalance, getDebtSummary, getUpcomingBillCluster, getSavingsTarget } from "@/lib/actions/dashboard";
+import { getSubscriptionAudit, getFrivolousSpending } from "@/lib/actions/reports";
 
 type ToolInput = Record<string, unknown>;
 
@@ -41,6 +42,8 @@ export async function handleToolCall(
       return handleWeeklyReview();
     case "summarize_tax_situation":
       return handleSummarizeTaxSituation();
+    case "suggest_savings_cuts":
+      return handleSuggestSavingsCuts(input);
     case "create_financial_plan":
       return handleCreateFinancialPlan(input);
     case "add_plan_line_item":
@@ -706,6 +709,80 @@ function handleSummarizeTaxSituation(): string {
     aggregate_narration: aggregateParts.join(" "),
     active: rows,
     paid_count: overview.paid.length,
+  });
+}
+
+function handleSuggestSavingsCuts(input: ToolInput): string {
+  const maxItems = Math.min(Math.max(1, (input.max_items as number) || 10), 25);
+  const audit = getSubscriptionAudit();
+  const frivolous = getFrivolousSpending();
+  const target = getSavingsTarget();
+
+  // Active (not yet cancelled) subscriptions, ranked by monthly cost.
+  const subRows = audit.subscriptions
+    .filter((s) => !s.flaggedCancel)
+    .map((s) => ({
+      kind: "subscription" as const,
+      label: s.merchant,
+      category: s.category,
+      monthly: s.monthlyCost,
+      annual: s.monthlyCost * 12,
+      action: "cancel",
+    }));
+
+  // Frivolous-tagged spending, grouped already as items. Treat the per-item amount
+  // as a one-time cut (annual extrapolation = amount * 12 only for recurring-style
+  // items; here we use the same monthly cost / annual = 12x convention only when
+  // the merchant repeats — for one-offs we just show the dollar value as-is).
+  // Simple v1: use the item amount as monthly impact since frivolous-tagged
+  // expenses are typically near-monthly behaviors (delivery, takeout, etc.).
+  const friviousRows = frivolous.items.map((f) => ({
+    kind: "frivolous" as const,
+    label: f.merchant ?? "Unknown",
+    category: f.categoryName,
+    monthly: f.amount,
+    annual: f.amount * 12,
+    action: "reduce or cut",
+  }));
+
+  const allRows = [...subRows, ...friviousRows]
+    .sort((a, b) => b.monthly - a.monthly)
+    .slice(0, maxItems);
+
+  // Rolling totals for the top-N narration.
+  let cumulativeMonthly = 0;
+  const topN = allRows.map((r) => {
+    cumulativeMonthly += r.monthly;
+    return {
+      kind: r.kind,
+      label: r.label,
+      category: r.category,
+      monthly: formatCurrency(r.monthly),
+      annual: formatCurrency(r.annual),
+      action: r.action,
+      cumulative_monthly: formatCurrency(cumulativeMonthly),
+    };
+  });
+
+  // Phrase top-3 cumulative impact relative to savings target.
+  const top3Total = allRows.slice(0, 3).reduce((s, r) => s + r.monthly, 0);
+  const targetGap = target.target;
+  const top3Pct = targetGap > 0 ? Math.min(100, Math.round((top3Total / targetGap) * 100)) : 0;
+  const headline =
+    targetGap > 0
+      ? `Cancelling the top 3 saves ${formatCurrency(top3Total)}/mo — that's ${top3Pct}% of your ${formatCurrency(targetGap)} monthly savings target.`
+      : `Top 3 cuts free up ${formatCurrency(top3Total)}/mo. No active savings target on file to compare against.`;
+
+  return JSON.stringify({
+    savings_target: {
+      monthly: formatCurrency(target.target),
+      forecasted_income: formatCurrency(target.forecastedIncome),
+      recurring_bills: formatCurrency(target.recurringBills),
+      discretionary_buffer: formatCurrency(target.discretionaryBuffer),
+    },
+    headline,
+    cuts: topN,
+    total_candidates: subRows.length + friviousRows.length,
   });
 }
 
