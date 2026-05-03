@@ -595,3 +595,131 @@ export function markVisitNow(): void {
     db.insert(schema.settings).values({ key: LAST_VISIT_KEY, value: stamp, updatedAt }).run();
   }
 }
+
+// ============================================================
+// SAVINGS TARGET (M3)
+// ============================================================
+
+export type SavingsTarget = {
+  forecastedIncome: number; // cents — recurring inflows over the next 30 days
+  recurringBills: number; // cents — recurring outflows over the next 30 days (non-Internal)
+  discretionaryBuffer: number; // cents — estimated non-recurring spending over a typical month
+  target: number; // cents — what's left after subtracting bills + discretionary from income
+  daysWindow: number;
+  // For the breakdown UI: what gets used to compute the buffer.
+  pastSpending: number; // cents — non-Internal expenses past 30 days
+  pastRecurringSpending: number; // cents — sum of one cycle of monthly recurring bills (proxy)
+};
+
+/**
+ * "What can I realistically save this month?" Walks the same recurring
+ * schedule the cash-flow forecast uses, then subtracts an estimate of
+ * non-recurring discretionary spending derived from the user's past 30 days.
+ *
+ * Conservative target — ignores variability and seasonal swings. Treat as
+ * a planning anchor, not a guaranteed number.
+ */
+export function getSavingsTarget(): SavingsTarget {
+  const internalCats = new Set(getInternalCategoryIds());
+  const excludedAccounts = new Set(getExcludedAccountIds());
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const horizon = new Date(today);
+  horizon.setDate(horizon.getDate() + 30);
+
+  // 1. Sum recurring inflows + outflows over the next 30 days.
+  const recurring = db
+    .select({
+      amount: schema.recurringTransactions.amount,
+      frequency: schema.recurringTransactions.frequency,
+      nextDueDate: schema.recurringTransactions.nextDueDate,
+      groupName: schema.categoryGroups.name,
+      categoryId: schema.recurringTransactions.categoryId,
+    })
+    .from(schema.recurringTransactions)
+    .leftJoin(schema.categories, eq(schema.recurringTransactions.categoryId, schema.categories.id))
+    .leftJoin(schema.categoryGroups, eq(schema.categories.groupId, schema.categoryGroups.id))
+    .where(eq(schema.recurringTransactions.isActive, true))
+    .all();
+
+  let forecastedIncome = 0;
+  let recurringBills = 0;
+  let pastRecurringSpending = 0; // one cycle of monthly recurring bills (proxy)
+
+  for (const r of recurring) {
+    if (r.groupName === "Internal") continue;
+    if (r.categoryId && internalCats.has(r.categoryId)) continue;
+    const isIncome = r.groupName === "Income";
+
+    // Add a "one cycle" bucket for the discretionary-buffer denominator.
+    if (!isIncome && r.frequency === "monthly") {
+      pastRecurringSpending += r.amount;
+    }
+
+    if (!r.nextDueDate) continue;
+    const occ = new Date(r.nextDueDate + "T00:00:00");
+    let iter = 0;
+    while (occ <= horizon && iter < 60) {
+      iter++;
+      if (occ >= today) {
+        if (isIncome) forecastedIncome += r.amount;
+        else recurringBills += r.amount;
+      }
+      switch (r.frequency) {
+        case "weekly":
+          occ.setDate(occ.getDate() + 7);
+          break;
+        case "biweekly":
+          occ.setDate(occ.getDate() + 14);
+          break;
+        case "monthly":
+          occ.setMonth(occ.getMonth() + 1);
+          break;
+        case "yearly":
+          occ.setFullYear(occ.getFullYear() + 1);
+          break;
+        default:
+          occ.setTime(horizon.getTime() + 86400000);
+      }
+    }
+  }
+
+  // 2. Estimate discretionary spending over a typical 30-day window from
+  //    actual past-30-day expenses, minus what's already in `recurringBills`.
+  const last30Start = new Date(today);
+  last30Start.setDate(last30Start.getDate() - 30);
+  const last30StartStr = last30Start.toISOString().split("T")[0];
+  const todayStr = today.toISOString().split("T")[0];
+
+  const pastSpendingRow = db
+    .select({ total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)` })
+    .from(schema.transactions)
+    .where(and(
+      eq(schema.transactions.type, "expense"),
+      gte(schema.transactions.date, last30StartStr),
+      lte(schema.transactions.date, todayStr),
+      internalCats.size > 0 ? notInArray(schema.transactions.categoryId, [...internalCats]) : undefined,
+      excludedAccounts.size > 0 ? notInArray(schema.transactions.accountId, [...excludedAccounts]) : undefined,
+    ))
+    .get();
+  const pastSpending = pastSpendingRow?.total ?? 0;
+
+  // Discretionary = past-30-day total spending minus one cycle of monthly
+  // recurring bills (which approximates the recurring slice of the past 30
+  // days). Non-monthly recurring (biweekly, yearly) hit less reliably so we
+  // don't try to net them out — this errs on the side of a larger buffer.
+  const discretionaryBuffer = Math.max(0, pastSpending - pastRecurringSpending);
+
+  const target = Math.max(0, forecastedIncome - recurringBills - discretionaryBuffer);
+
+  return {
+    forecastedIncome,
+    recurringBills,
+    discretionaryBuffer,
+    target,
+    daysWindow: 30,
+    pastSpending,
+    pastRecurringSpending,
+  };
+}
