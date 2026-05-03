@@ -110,10 +110,13 @@ export function DebtProgress({ debts, totalActive, totalOriginal, progress, mont
           </div>
         )}
 
-        {/* Individual debts */}
+        {/* Individual debts. Credit cards (revolving) don't get a payoff bar —
+            their "original balance" is meaningless. Installment loans only get
+            a bar when there's actually some progress to show (orig > curr). */}
         <div className="space-y-3 pt-2">
           {debts.slice(0, 4).map((d) => {
-            const pct = d.originalBalance > 0
+            const showProgress = d.type !== "credit_card" && d.originalBalance > d.currentBalance;
+            const pct = showProgress
               ? Math.round(((d.originalBalance - d.currentBalance) / d.originalBalance) * 100)
               : 0;
             return (
@@ -124,7 +127,7 @@ export function DebtProgress({ debts, totalActive, totalOriginal, progress, mont
                     {formatCurrency(d.currentBalance)} at {(d.interestRate * 100).toFixed(1)}%
                   </span>
                 </div>
-                <Progress value={pct} className="h-1.5" />
+                {showProgress && <Progress value={pct} className="h-1.5" />}
               </div>
             );
           })}
