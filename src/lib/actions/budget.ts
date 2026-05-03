@@ -22,8 +22,8 @@ export type BudgetRow = {
   percentUsed: number;
 };
 
-export function getBudgetOverview(): BudgetRow[] {
-  const monthStart = getMonthStart();
+export function getBudgetOverview(monthStartOverride?: string): BudgetRow[] {
+  const monthStart = monthStartOverride ?? getMonthStart();
 
   const budgets = db
     .select({
@@ -75,8 +75,8 @@ export function getBudgetOverview(): BudgetRow[] {
   }).sort((a, b) => (a.groupSort ?? 99) - (b.groupSort ?? 99));
 }
 
-export function getBudgetSummary() {
-  const rows = getBudgetOverview();
+export function getBudgetSummary(monthStartOverride?: string) {
+  const rows = getBudgetOverview(monthStartOverride);
   const totalBudgeted = rows.reduce((s, r) => s + r.budgeted, 0);
   const totalSpent = rows.reduce((s, r) => s + r.spent, 0);
   const totalRemaining = totalBudgeted - totalSpent;
