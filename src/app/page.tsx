@@ -9,6 +9,7 @@ import { SpendingVelocity } from "@/components/dashboard/spending-velocity";
 import { SinceLastVisitStrip } from "@/components/dashboard/since-last-visit-strip";
 import { BillClusterBanner } from "@/components/dashboard/bill-cluster-banner";
 import { DebtDeadlineBanner } from "@/components/dashboard/debt-deadline-banner";
+import { SavingsTargetCard } from "@/components/dashboard/savings-target-card";
 import { getUpcomingDebtDeadlines } from "@/lib/actions/debts";
 import { Wallet, TrendingDown, TrendingUp } from "lucide-react";
 import {
@@ -23,6 +24,7 @@ import {
   getTotalBalance,
   getDebtFreeProjection,
   getUpcomingBillCluster,
+  getSavingsTarget,
 } from "@/lib/actions/dashboard";
 import { getSpendingVelocity, getSpendingByDay } from "@/lib/actions/reports";
 import { formatCurrency } from "@/lib/utils/format";
@@ -45,6 +47,7 @@ export default function DashboardPage() {
   const debtFree = getDebtFreeProjection();
   const billCluster = getUpcomingBillCluster();
   const debtDeadlines = getUpcomingDebtDeadlines();
+  const savingsTarget = getSavingsTarget();
 
   // Two distinct empty states:
   //   - hasAccounts: any non-excluded bank account exists (regardless of whether
@@ -147,6 +150,11 @@ export default function DashboardPage() {
             debtFreeAt={debtFree.atRecommended ?? debtFree.atMinimum}
             debtFreeMonths={debtFree.monthsAtRecommended ?? debtFree.monthsAtMinimum}
           />
+        </div>
+
+        {/* Savings target row */}
+        <div className="grid grid-cols-1 mb-6">
+          <SavingsTargetCard data={savingsTarget} />
         </div>
 
         {/* Bottom row: planning */}
