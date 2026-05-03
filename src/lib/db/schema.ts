@@ -79,6 +79,10 @@ export const transactions = sqliteTable("transactions", {
   // Teller row arrives, or expires after placeholderExpiresAt.
   source: text("source").notNull().default("manual"),
   placeholderExpiresAt: text("placeholder_expires_at"),
+  // Optional link to a savings goal — counts this row as a contribution
+  // toward goal.currentAmount. Set explicitly by the user via UI; future
+  // auto-linker can set during sync. Nullable; most rows aren't linked.
+  linkedGoalId: text("linked_goal_id"),
   createdAt: text("created_at").notNull(),
 });
 
