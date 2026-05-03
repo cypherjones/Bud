@@ -4,6 +4,8 @@ import { formatCurrency } from "@/lib/utils/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { getGoalContributions, getLinkableTransactions } from "@/lib/actions/goals";
+import { LinkContributionDialog } from "@/components/goals/link-contribution-dialog";
 
 export const dynamic = "force-dynamic";
 
@@ -66,8 +68,17 @@ export default async function GoalsPage() {
   }
 
   const goals = [...byName.values()];
-
   const hasGoals = goals.length > 0;
+
+  // Per-goal contribution detail (only for goals backed by a savings_goals row,
+  // since linked_goal_id references that table).
+  const contributionsByGoal = new Map<string, ReturnType<typeof getGoalContributions>>();
+  for (const g of goals) {
+    if (g.source === "goal") {
+      contributionsByGoal.set(g.id, getGoalContributions(g.id));
+    }
+  }
+  const linkable = hasGoals ? getLinkableTransactions(40) : [];
 
   return (
     <div className="flex flex-col h-screen">
@@ -153,6 +164,15 @@ export default async function GoalsPage() {
                     {remaining > 0 && goal.targetDate && (
                       <PaceLine remaining={remaining} targetDate={goal.targetDate} />
                     )}
+
+                    {goal.source === "goal" && (
+                      <Contributions
+                        goalId={goal.id}
+                        goalName={goal.name}
+                        contributions={contributionsByGoal.get(goal.id) ?? []}
+                        linkable={linkable}
+                      />
+                    )}
                   </CardContent>
                 </Card>
               );
@@ -199,6 +219,51 @@ function PaceLine({ remaining, targetDate }: { remaining: number; targetDate: st
       <p className="text-muted-foreground">
         {monthsRemaining} {monthsRemaining === 1 ? "month" : "months"} remaining
       </p>
+    </div>
+  );
+}
+
+function shortDate(iso: string): string {
+  return new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function Contributions({
+  goalId,
+  goalName,
+  contributions,
+  linkable,
+}: {
+  goalId: string;
+  goalName: string;
+  contributions: { id: string; date: string; amount: number; description: string; merchant: string | null; accountName: string | null }[];
+  linkable: { id: string; date: string; amount: number; description: string; merchant: string | null; accountName: string | null; accountSubtype: string | null }[];
+}) {
+  const total = contributions.reduce((s, c) => s + c.amount, 0);
+
+  return (
+    <div className="border-t border-border pt-3 space-y-2 text-xs">
+      <div className="flex items-center justify-between">
+        <span className="text-muted-foreground">
+          Contributions{" "}
+          <span className="text-foreground font-medium">
+            ({contributions.length} · {formatCurrency(total)})
+          </span>
+        </span>
+        <LinkContributionDialog goalId={goalId} goalName={goalName} candidates={linkable} />
+      </div>
+      {contributions.slice(0, 3).map((c) => (
+        <div key={c.id} className="flex items-center justify-between text-muted-foreground">
+          <span className="truncate">
+            {shortDate(c.date)}
+            {c.accountName ? ` · ${c.accountName}` : ""}
+            {c.merchant ? ` · ${c.merchant}` : ""}
+          </span>
+          <span className="font-medium text-foreground">{formatCurrency(c.amount)}</span>
+        </div>
+      ))}
+      {contributions.length > 3 && (
+        <p className="text-muted-foreground">+{contributions.length - 3} more</p>
+      )}
     </div>
   );
 }
