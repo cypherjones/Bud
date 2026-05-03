@@ -165,6 +165,12 @@ export const debts = sqliteTable("debts", {
   creditLimit: integer("credit_limit"), // cents — for utilization calc on revolving debt
   status: text("status").notNull().default("active"), // "active" | "paid_off" | "in_collections" | "deferred"
   notes: text("notes"),
+  // Optional one-off deadline tied to this debt — surfaced as a dashboard
+  // banner when within 14 days. Useful for things like "$168.30 by 5/31 to
+  // roll the 90-day-late mark back to 60-day on the credit report."
+  nextActionDeadline: text("next_action_deadline"), // ISO YYYY-MM-DD
+  nextActionAmount: integer("next_action_amount"), // cents
+  nextActionNote: text("next_action_note"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
