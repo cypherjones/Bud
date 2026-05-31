@@ -718,9 +718,12 @@ function handleSuggestSavingsCuts(input: ToolInput): string {
   const frivolous = getFrivolousSpending();
   const target = getSavingsTarget();
 
-  // Active (not yet cancelled) subscriptions, ranked by monthly cost.
+  // Active (not yet cancelled, not reimbursable) subscriptions, ranked by
+  // monthly cost. Reimbursable subs aren't savings opportunities — work pays
+  // them back — so excluding here keeps the AI from suggesting cuts that
+  // wouldn't actually free up cash.
   const subRows = audit.subscriptions
-    .filter((s) => !s.flaggedCancel)
+    .filter((s) => !s.flaggedCancel && !s.flaggedReimbursable)
     .map((s) => ({
       kind: "subscription" as const,
       label: s.merchant,

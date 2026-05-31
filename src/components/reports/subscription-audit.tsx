@@ -2,13 +2,12 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { formatCurrency } from "@/lib/utils/format";
 import { apiFetch } from "@/lib/client/api";
 import { useRouter } from "next/navigation";
-import { Ban, Undo2, X } from "lucide-react";
+import { Ban, Undo2, X, Clock, Wallet, Scissors } from "lucide-react";
 
 type Sub = {
   merchant: string;
@@ -16,14 +15,24 @@ type Sub = {
   category: string | null;
   lastSeen: string;
   flaggedCancel: boolean;
+  flaggedReimbursable?: boolean;
+  flaggedKillList?: boolean;
+  daysSinceLastSeen?: number;
+  isStale?: boolean;
 };
 
 type Props = {
   data: {
     subscriptions: Sub[];
-    totalMonthly: number; // active-only (server already excludes flaggedCancel)
+    staleSubscriptions?: Sub[];
+    reimbursableSubs?: Sub[];
+    killListSubs?: Sub[];
+    totalMonthly: number; // active-only (server already excludes flaggedCancel + stale + reimbursable)
     totalAnnual: number;
+    reimbursableMonthly?: number;
+    killListMonthly?: number;
     cancelledMonthlySavings: number;
+    staleMonthly?: number;
   };
 };
 
@@ -31,10 +40,16 @@ export function SubscriptionAudit({ data }: Props) {
   const [toggling, setToggling] = useState<string | null>(null);
   const router = useRouter();
 
-  const activeSubs = data.subscriptions.filter(s => !s.flaggedCancel);
+  const activeSubs = data.subscriptions.filter(s => !s.flaggedCancel && !s.flaggedReimbursable && !s.flaggedKillList);
   const cancelledSubs = data.subscriptions.filter(s => s.flaggedCancel);
+  const staleSubs = data.staleSubscriptions ?? [];
+  const reimbursableSubs = data.reimbursableSubs ?? [];
+  const killListSubs = data.killListSubs ?? [];
+  const killListMonthly = data.killListMonthly ?? 0;
   const activeMonthly = data.totalMonthly;
+  const reimbursableMonthly = data.reimbursableMonthly ?? 0;
   const cancelSavings = data.cancelledMonthlySavings;
+  const staleMonthly = data.staleMonthly ?? 0;
   const top3Cost = activeSubs.slice(0, 3).reduce((s, sub) => s + sub.monthlyCost, 0);
   const top3Pct = activeMonthly > 0 ? Math.round((top3Cost / activeMonthly) * 100) : 0;
 
@@ -111,12 +126,35 @@ export function SubscriptionAudit({ data }: Props) {
                     <Button
                       variant="ghost"
                       size="sm"
+                      onClick={() => setTag(sub.merchant, "kill-list", "add")}
+                      disabled={toggling === sub.merchant}
+                      className="text-amber-600 hover:text-amber-800 hover:bg-amber-50 h-7 px-2 text-xs"
+                      title="Add to kill list — surfaces on dashboard until you cancel"
+                    >
+                      <Scissors className="w-3 h-3 mr-1" />
+                      Kill list
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setTag(sub.merchant, "reimbursable", "add")}
+                      disabled={toggling === sub.merchant}
+                      className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 h-7 px-2 text-xs"
+                      title="Mark as reimbursable — moves out of active burn"
+                    >
+                      <Wallet className="w-3 h-3 mr-1" />
+                      Reimburse
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => setTag(sub.merchant, "cancel", "add")}
                       disabled={toggling === sub.merchant}
                       className="text-red-500 hover:text-red-700 hover:bg-red-50 h-7 px-2 text-xs"
+                      title="Already cancelled — moves to Cancelled list"
                     >
                       <Ban className="w-3 h-3 mr-1" />
-                      {toggling === sub.merchant ? "..." : "Cancel"}
+                      {toggling === sub.merchant ? "..." : "Cancelled"}
                     </Button>
                     <Button
                       variant="ghost"
@@ -135,6 +173,178 @@ export function SubscriptionAudit({ data }: Props) {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Stale (haven't hit the bank in 60+ days) */}
+      {staleSubs.length > 0 && (
+        <Card className="border-amber-200 dark:border-amber-800">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-amber-700 dark:text-amber-400 flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              Stale — not seen in 60+ days
+              <span className="text-xs font-normal text-muted-foreground">
+                · {staleSubs.length} item{staleSubs.length !== 1 ? "s" : ""} · {formatCurrency(staleMonthly)}/mo if still billing
+              </span>
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              These were tagged #recurring but haven&apos;t hit your bank statement recently.
+              Most likely already cancelled or one-offs that were mis-tagged. Confirm and untag.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-4">Service</TableHead>
+                  <TableHead>Was Costing</TableHead>
+                  <TableHead>Last Seen</TableHead>
+                  <TableHead className="pr-4 text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {staleSubs.map((sub, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="pl-4 font-medium text-muted-foreground">{sub.merchant}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatCurrency(sub.monthlyCost)}/mo</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {sub.daysSinceLastSeen ?? "?"}d ago
+                    </TableCell>
+                    <TableCell className="pr-4 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setTag(sub.merchant, "recurring", "remove")}
+                        disabled={toggling === sub.merchant}
+                        className="text-muted-foreground hover:text-foreground h-7 px-2 text-xs"
+                      >
+                        <X className="w-3 h-3 mr-1" />
+                        {toggling === sub.merchant ? "..." : "Untag"}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Reimbursable — work-paid SaaS that hits the bank but gets paid back */}
+      {reimbursableSubs.length > 0 && (
+        <Card className="border-blue-200 dark:border-blue-800">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-blue-700 dark:text-blue-400 flex items-center gap-2">
+              <Wallet className="w-4 h-4" />
+              Reimbursable — {formatCurrency(reimbursableMonthly)}/mo
+              <span className="text-xs font-normal text-muted-foreground">
+                · excluded from active burn
+              </span>
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              These hit your bank but are paid back (work expenses, etc.) — confirm reimbursement is actually happening.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-4">Service</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Monthly</TableHead>
+                  <TableHead className="pr-4 text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reimbursableSubs.map((sub, i) => (
+                  <TableRow key={i} className="bg-blue-50/30 dark:bg-blue-950/10">
+                    <TableCell className="pl-4 font-medium">{sub.merchant}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{sub.category ?? "—"}</TableCell>
+                    <TableCell className="font-medium">{formatCurrency(sub.monthlyCost)}</TableCell>
+                    <TableCell className="pr-4 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setTag(sub.merchant, "reimbursable", "remove")}
+                        disabled={toggling === sub.merchant}
+                        className="text-muted-foreground hover:text-foreground h-7 px-2 text-xs"
+                      >
+                        <Undo2 className="w-3 h-3 mr-1" />
+                        {toggling === sub.merchant ? "..." : "Unmark"}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Kill List — flagged but not yet cancelled. Mirrored on the dashboard
+          checklist so the user doesn't lose track. */}
+      {killListSubs.length > 0 && (
+        <Card className="border-amber-300 dark:border-amber-800">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-amber-700 dark:text-amber-400 flex items-center gap-2">
+              <Scissors className="w-4 h-4" />
+              Kill List — {killListSubs.length} sub{killListSubs.length !== 1 ? "s" : ""} ({formatCurrency(killListMonthly)}/mo)
+              <span className="text-xs font-normal text-muted-foreground">
+                · {formatCurrency(killListMonthly * 12)}/yr if all cancelled
+              </span>
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Tagged for cancellation but not yet pulled. Click &quot;Cancelled&quot; once you&apos;ve actually done it.
+              Also visible as a checklist on the dashboard.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-4">Service</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Monthly</TableHead>
+                  <TableHead className="pr-4 text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {killListSubs.map((sub, i) => (
+                  <TableRow key={i} className="bg-amber-50/40 dark:bg-amber-950/10">
+                    <TableCell className="pl-4 font-medium">{sub.merchant}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{sub.category ?? "—"}</TableCell>
+                    <TableCell className="font-medium">{formatCurrency(sub.monthlyCost)}</TableCell>
+                    <TableCell className="pr-4 text-right space-x-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={async () => {
+                          await setTag(sub.merchant, "cancel", "add");
+                          await setTag(sub.merchant, "kill-list", "remove");
+                        }}
+                        disabled={toggling === sub.merchant}
+                        className="text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 h-7 px-2 text-xs"
+                      >
+                        <Ban className="w-3 h-3 mr-1" />
+                        {toggling === sub.merchant ? "..." : "Mark cancelled"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setTag(sub.merchant, "kill-list", "remove")}
+                        disabled={toggling === sub.merchant}
+                        className="text-muted-foreground hover:text-foreground h-7 px-2 text-xs"
+                        title="Remove from kill list — keep paying"
+                      >
+                        <Undo2 className="w-3 h-3 mr-1" />
+                        Keep
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Cancelled Subscriptions */}
       {cancelledSubs.length > 0 && (

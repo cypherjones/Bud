@@ -9,6 +9,7 @@ import { X, Check, Pencil } from "lucide-react";
 
 type Props = {
   budgetId: string;
+  categoryId: string;
   categoryName: string;
   categoryColor: string;
   budgeted: number; // cents
@@ -17,7 +18,7 @@ type Props = {
   percentUsed: number;
 };
 
-export function BudgetCategoryRow({ budgetId, categoryName, categoryColor, budgeted, spent, remaining, percentUsed }: Props) {
+export function BudgetCategoryRow({ budgetId, categoryId, categoryName, categoryColor, budgeted, spent, remaining, percentUsed }: Props) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState((budgeted / 100).toString());
   const [saving, setSaving] = useState(false);
@@ -29,12 +30,20 @@ export function BudgetCategoryRow({ budgetId, categoryName, categoryColor, budge
     const dollars = parseFloat(editValue);
     if (isNaN(dollars) || dollars < 0) return;
     setSaving(true);
-    // We need categoryId — extract from budgetId by calling delete then re-create, or just update
-    // Actually the API takes categoryId. Let me pass it differently.
-    // For now, delete and re-create isn't ideal. Let me just use the budget ID approach.
-    setEditing(false);
+    // Upsert by categoryId — same endpoint AddBudgetRow uses.
+    await apiFetch("/api/budgets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ categoryId, amount: dollars }),
+    });
     setSaving(false);
+    setEditing(false);
     router.refresh();
+  };
+
+  const handleCancel = () => {
+    setEditValue((budgeted / 100).toString());
+    setEditing(false);
   };
 
   const handleDelete = async () => {
@@ -56,31 +65,75 @@ export function BudgetCategoryRow({ budgetId, categoryName, categoryColor, budge
       <div className="flex-1">
         <Progress
           value={Math.min(percentUsed, 100)}
-          className="h-2"
+          className={`h-2 [&>div]:${statusColor}`}
         />
       </div>
 
       <div className="flex items-center gap-3 shrink-0">
-        <div className="text-right min-w-[120px]">
-          <span className="text-sm font-medium">{formatCurrency(spent)}</span>
-          <span className="text-xs text-muted-foreground"> / {formatCurrency(budgeted)}</span>
-        </div>
+        {editing ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">$</span>
+            <input
+              type="number"
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSave();
+                if (e.key === "Escape") handleCancel();
+              }}
+              min={0}
+              step={10}
+              autoFocus
+              className="w-24 rounded border border-border bg-background px-2 py-1 text-sm tabular-nums"
+            />
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="text-emerald-600 hover:text-emerald-700 transition-colors p-1"
+              title="Save"
+            >
+              <Check className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={handleCancel}
+              className="text-muted-foreground hover:text-foreground transition-colors p-1"
+              title="Cancel"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="text-right min-w-[120px]">
+              <span className="text-sm font-medium">{formatCurrency(spent)}</span>
+              <span className="text-xs text-muted-foreground"> / {formatCurrency(budgeted)}</span>
+            </div>
 
-        <div className="min-w-[90px] text-right">
-          {remaining >= 0 ? (
-            <span className="text-xs text-emerald-600">{formatCurrency(remaining)} left</span>
-          ) : (
-            <span className="text-xs text-red-500">Over {formatCurrency(Math.abs(remaining))}</span>
-          )}
-        </div>
+            <div className="min-w-[90px] text-right">
+              {remaining >= 0 ? (
+                <span className="text-xs text-emerald-600">{formatCurrency(remaining)} left</span>
+              ) : (
+                <span className="text-xs text-red-500">Over {formatCurrency(Math.abs(remaining))}</span>
+              )}
+            </div>
 
-        <button
-          onClick={handleDelete}
-          className="text-muted-foreground hover:text-red-500 transition-colors p-1"
-          title="Remove budget"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
+            <button
+              onClick={() => setEditing(true)}
+              className="text-muted-foreground hover:text-foreground transition-colors p-1"
+              title="Edit budget"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+
+            <button
+              onClick={handleDelete}
+              className="text-muted-foreground hover:text-red-500 transition-colors p-1"
+              title="Remove budget"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
