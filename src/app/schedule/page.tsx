@@ -119,20 +119,20 @@ export default async function SchedulePage() {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <Card>
             <CardContent className="pt-5">
-              <p className="text-xs text-muted-foreground">Monthly Income</p>
+              <p className="text-xs text-muted-foreground">Recurring income</p>
               <p className="text-2xl font-bold tracking-tight mt-1 text-emerald-600">
                 +{formatCurrency(totalMonthlyIncome)}
               </p>
-              <p className="text-[10px] text-muted-foreground mt-1">recurring, monthlized</p>
+              <p className="text-[10px] text-muted-foreground mt-1">monthly average from active recurring rows</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-5">
-              <p className="text-xs text-muted-foreground">Monthly Bills</p>
+              <p className="text-xs text-muted-foreground">Recurring bills</p>
               <p className="text-2xl font-bold tracking-tight mt-1 text-red-500">
                 -{formatCurrency(totalMonthlyExpenses)}
               </p>
-              <p className="text-[10px] text-muted-foreground mt-1">recurring, monthlized</p>
+              <p className="text-[10px] text-muted-foreground mt-1">monthly average from active recurring rows</p>
             </CardContent>
           </Card>
           <Card>
@@ -152,7 +152,12 @@ export default async function SchedulePage() {
           {/* Calendar Grid */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm font-medium">{monthLabel}</CardTitle>
+              <div className="flex items-baseline justify-between gap-2">
+                <CardTitle className="text-sm font-medium">{monthLabel}</CardTitle>
+                <p className="text-[11px] text-muted-foreground">
+                  scheduled events from today onward — past days appear empty
+                </p>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-7 gap-px">

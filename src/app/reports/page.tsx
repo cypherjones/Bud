@@ -1,16 +1,19 @@
 import {
   getMonthlySummary,
   getSubscriptionAudit,
-  getTaxDeductions,
   getFrivolousSpending,
   getCategoryTrends,
   getCashFlowForecast,
-  getSpendingByDay,
   getSpendingVelocity,
 } from "@/lib/actions/reports";
 import { getActiveReportingMonth } from "@/lib/actions/dashboard";
+import { getDebtStrategy } from "@/lib/actions/debts";
+import { getMoveReadiness } from "@/lib/actions/move-readiness";
+import { getCreditTrajectory } from "@/lib/actions/credit-trajectory";
 import { ReportTabs } from "@/components/reports/report-tabs";
 import { EmptyMonthBanner } from "@/components/dashboard/empty-month-banner";
+import { db, schema } from "@/lib/db";
+import { eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -24,12 +27,32 @@ export default async function ReportsPage() {
   // because the helpers compute "this month so far." That's noted in the banner.
   const monthlySummary = getMonthlySummary(activeMonth.monthStart);
   const velocity = getSpendingVelocity();
-  const dailySpending = getSpendingByDay(activeMonth.monthStart, activeMonth.monthEnd);
   const subscriptions = getSubscriptionAudit();
-  const taxDeductions = getTaxDeductions();
   const frivolous = getFrivolousSpending(activeMonth.monthStart);
-  const categoryTrends = getCategoryTrends(3);
-  const cashFlow = getCashFlowForecast(30);
+  const categoryTrends = getCategoryTrends(6);
+  // 75 days = ~through end of next month + buffer, so the "End of Next Month"
+  // headline always lands inside the projection window. A 30-day window cut off
+  // 3-4 future paychecks and made next month's balance look like a cliff.
+  const cashFlow = getCashFlowForecast(75);
+  const debtStrategy = getDebtStrategy();
+  const moveReadiness = getMoveReadiness();
+  const creditTrajectory = getCreditTrajectory();
+
+  // Categories list for inline recategorization in the Discretionary "Other"
+  // bucket drill-down. Same shape /transactions uses.
+  const categories = db
+    .select({
+      id: schema.categories.id,
+      name: schema.categories.name,
+      color: schema.categories.color,
+      groupId: schema.categories.groupId,
+      groupName: schema.categoryGroups.name,
+      groupColor: schema.categoryGroups.color,
+      groupSort: schema.categoryGroups.sortOrder,
+    })
+    .from(schema.categories)
+    .leftJoin(schema.categoryGroups, eq(schema.categories.groupId, schema.categoryGroups.id))
+    .all();
 
   return (
     <div className="flex flex-col h-screen">
@@ -46,12 +69,14 @@ export default async function ReportsPage() {
         <ReportTabs
           monthlySummary={monthlySummary}
           velocity={velocity}
-          dailySpending={dailySpending}
           subscriptions={subscriptions}
-          taxDeductions={taxDeductions}
           frivolous={frivolous}
           categoryTrends={categoryTrends}
           cashFlow={cashFlow}
+          debtStrategy={debtStrategy}
+          moveReadiness={moveReadiness}
+          creditTrajectory={creditTrajectory}
+          categories={categories}
         />
       </div>
     </div>

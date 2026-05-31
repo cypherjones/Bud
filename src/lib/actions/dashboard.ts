@@ -4,6 +4,7 @@ import { eq, and, gte, lte, desc, sql, notInArray } from "drizzle-orm";
 import { getPayoffProjections } from "./debts";
 import { normalizeMerchantKey, cleanMerchantDisplay } from "@/lib/utils/merchant";
 import { inferMonthlyCost } from "@/lib/utils/cadence";
+import { BUFFER_TARGET_CENTS } from "@/lib/financial-constants";
 
 /** Category IDs that represent internal moves (transfers, round-ups), not real spending.
  *  Cached per render — called dozens of times across actions; once is enough. */
@@ -300,6 +301,57 @@ export function getDebtFreeProjection(): { atMinimum: string | null; atRecommend
   };
 }
 
+/**
+ * Liquid savings split into buffer reserve + Houston-available. Used by
+ * getMovePlan AND getBudgetStrategy so both surfaces report the same number
+ * for "Houston saved." Prior to this consolidation, /dashboard MoveTracker
+ * and /move-planner read `plan.currentSaved` (a manually-maintained column),
+ * while /budget GoalCommitments + StrategicHero used the computed split —
+ * same concept, two answers visible in the same UI.
+ */
+export function getMovableSavingsSplit(): {
+  totalSavingsCents: number;
+  earmarkedCents: number;
+  movableCents: number;
+  bufferCurrentCents: number;
+  houstonSavedCents: number;
+} {
+  const savingsAccounts = db
+    .select({ balance: schema.accounts.balance })
+    .from(schema.accounts)
+    .where(and(
+      eq(schema.accounts.subtype, "savings"),
+      eq(schema.accounts.excludeFromReports, false),
+    ))
+    .all();
+  const totalSavingsCents = savingsAccounts.reduce((s, a) => s + (a.balance ?? 0), 0);
+
+  // Parse the earmarks JSON in settings. Same defensive try/catch as elsewhere
+  // — malformed JSON shouldn't take the page down.
+  const earmarksRow = db
+    .select()
+    .from(schema.settings)
+    .where(eq(schema.settings.key, "move_savings_earmarks"))
+    .get();
+  let earmarkedCents = 0;
+  if (earmarksRow) {
+    try {
+      const parsed = JSON.parse(earmarksRow.value);
+      if (Array.isArray(parsed)) {
+        earmarkedCents = parsed
+          .filter((e: { cents?: unknown }) => typeof e?.cents === "number" && e.cents >= 0)
+          .reduce((s: number, e: { cents: number }) => s + e.cents, 0);
+      }
+    } catch { /* malformed — treat as 0 */ }
+  }
+
+  const movableCents = Math.max(0, totalSavingsCents - earmarkedCents);
+  const bufferCurrentCents = Math.min(BUFFER_TARGET_CENTS, movableCents);
+  const houstonSavedCents = Math.max(0, movableCents - BUFFER_TARGET_CENTS);
+
+  return { totalSavingsCents, earmarkedCents, movableCents, bufferCurrentCents, houstonSavedCents };
+}
+
 export function getMovePlan() {
   const plan = db
     .select()
@@ -317,16 +369,28 @@ export function getMovePlan() {
     .orderBy(schema.planLineItems.sortOrder)
     .all();
 
+  // currentSaved is computed from real account balances minus buffer reserve,
+  // NOT the plan row's stored column. The stored column lingers because AI
+  // tools still write to it on "I moved $X to Houston" — we just ignore it
+  // for display so the dashboard, /budget, and /move-planner all show the
+  // same number.
+  const split = getMovableSavingsSplit();
+  const computedCurrentSaved = split.houstonSavedCents;
+
   const totalEstimated = items.reduce((s, i) => s + (i.estimatedAmount ?? 0), 0);
   const paidCount = items.filter((i) => i.isPaid).length;
   const target = plan.targetAmount ?? totalEstimated;
-  const progress = target > 0 ? Math.round((plan.currentSaved / target) * 100) : 0;
+  const progress = target > 0 ? Math.round((computedCurrentSaved / target) * 100) : 0;
 
   const daysUntil = plan.targetDate
     ? Math.ceil((new Date(plan.targetDate).getTime() - Date.now()) / 86400000)
     : null;
 
-  return { plan, items, totalEstimated, paidCount, target, progress, daysUntil };
+  // Override the stored currentSaved before returning so every consumer of
+  // getMovePlan().plan.currentSaved sees the computed value.
+  const planWithComputedSaved = { ...plan, currentSaved: computedCurrentSaved };
+
+  return { plan: planWithComputedSaved, items, totalEstimated, paidCount, target, progress, daysUntil };
 }
 
 export function getCreditSummary() {
@@ -1029,6 +1093,20 @@ function _getSavingsTarget(): SavingsTarget {
   const last30StartStr = last30Start.toISOString().split("T")[0];
   const todayStr = today.toISOString().split("T")[0];
 
+  // Exclude the "Other" auto-categorization gap bucket the same way the
+  // discretionary report and cash-flow variable rate do — counting it as
+  // expected discretionary inflates pastSpending by ~$2.4k/mo of misclassified
+  // Gusto / tolls / debt-payments / etc., which directly suppresses the
+  // savings-target headline. Real fix lives in category-map.ts; until then,
+  // don't double-charge the user for it here.
+  const otherCategoryRow = db
+    .select({ id: schema.categories.id })
+    .from(schema.categories)
+    .where(eq(schema.categories.name, "Other"))
+    .get();
+  const otherCategoryIds = otherCategoryRow ? [otherCategoryRow.id] : [];
+  const excludedCategoryIds = [...internalCats, ...otherCategoryIds];
+
   const pastSpendingRow = db
     .select({ total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)` })
     .from(schema.transactions)
@@ -1036,7 +1114,7 @@ function _getSavingsTarget(): SavingsTarget {
       eq(schema.transactions.type, "expense"),
       gte(schema.transactions.date, last30StartStr),
       lte(schema.transactions.date, todayStr),
-      internalCats.size > 0 ? notInArray(schema.transactions.categoryId, [...internalCats]) : undefined,
+      excludedCategoryIds.length > 0 ? notInArray(schema.transactions.categoryId, excludedCategoryIds) : undefined,
       excludedAccounts.size > 0 ? notInArray(schema.transactions.accountId, [...excludedAccounts]) : undefined,
     ))
     .get();

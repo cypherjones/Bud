@@ -2,15 +2,12 @@ import { cache } from "react";
 import { db, schema } from "@/lib/db";
 import { eq, and, gte, lte, sql, inArray, notInArray } from "drizzle-orm";
 import { newId } from "@/lib/utils/ids";
-import { now } from "@/lib/utils/format";
-import { getInternalCategoryIds, getExcludedAccountIds } from "./dashboard";
+import { now, formatCurrencyCompact } from "@/lib/utils/format";
+import { getInternalCategoryIds, getExcludedAccountIds, getMovableSavingsSplit } from "./dashboard";
 import { getSubscriptionAudit, getCashFlowForecast } from "./reports";
 import { getAutopayStatuses } from "./debts";
 
-/** Cash buffer target — one-paycheck cushion that has to land before any
- *  Houston/Move savings flows. Hardcoded for now since it's universal advice;
- *  could become a setting later if a user wants a thicker floor. */
-const BUFFER_TARGET_CENTS = 150000;
+import { BUFFER_TARGET_CENTS } from "@/lib/financial-constants";
 
 // ============================================================
 // CATEGORY BUCKET CLASSIFICATION
@@ -689,35 +686,13 @@ function _getBudgetStrategy(): BudgetStrategy {
   const killListMonthlySavings = subAudit.killListMonthly;
 
   // === Savings + earmarks ===
-  const savingsAccounts = db
-    .select({ balance: schema.accounts.balance })
-    .from(schema.accounts)
-    .where(and(
-      eq(schema.accounts.subtype, "savings"),
-      eq(schema.accounts.excludeFromReports, false),
-    ))
-    .all();
-  const totalSavingsCents = savingsAccounts.reduce((s, a) => s + (a.balance ?? 0), 0);
-
-  const earmarksRow = db
-    .select()
-    .from(schema.settings)
-    .where(eq(schema.settings.key, "move_savings_earmarks"))
-    .get();
-  let earmarkedCents = 0;
-  if (earmarksRow) {
-    try {
-      const parsed = JSON.parse(earmarksRow.value);
-      if (Array.isArray(parsed)) {
-        earmarkedCents = parsed
-          .filter((e: { cents?: unknown }) => typeof e?.cents === "number" && e.cents >= 0)
-          .reduce((s: number, e: { cents: number }) => s + e.cents, 0);
-      }
-    } catch { /* malformed — treat as 0 */ }
-  }
-
-  const movableSavings = Math.max(0, totalSavingsCents - earmarkedCents);
-  const bufferCurrentCents = Math.min(BUFFER_TARGET_CENTS, movableSavings);
+  // Shared helper — keeps /budget GoalCommitments, /dashboard StrategicHero +
+  // MoveTracker, and /move-planner reporting the same Houston-saved number.
+  const savingsSplit = getMovableSavingsSplit();
+  const totalSavingsCents = savingsSplit.totalSavingsCents;
+  const earmarkedCents = savingsSplit.earmarkedCents;
+  const movableSavings = savingsSplit.movableCents;
+  const bufferCurrentCents = savingsSplit.bufferCurrentCents;
   const bufferRemainingCents = Math.max(0, BUFFER_TARGET_CENTS - bufferCurrentCents);
   const bufferPercent = Math.round((bufferCurrentCents / BUFFER_TARGET_CENTS) * 100);
   // bufferEtaMonths uses projectedNextMonthNet (real cash-flow accounting)
@@ -738,7 +713,7 @@ function _getBudgetStrategy(): BudgetStrategy {
     .get();
   const moveTargetCents = movePlan?.targetAmount ?? 0;
   const moveDate = movePlan?.targetDate ?? null;
-  const moveSavedCents = Math.max(0, movableSavings - BUFFER_TARGET_CENTS);
+  const moveSavedCents = savingsSplit.houstonSavedCents;
   const moveRemainingCents = Math.max(0, moveTargetCents - moveSavedCents);
   let moveMonthsRemaining: number | null = null;
   if (moveDate) {
@@ -780,21 +755,21 @@ function _getBudgetStrategy(): BudgetStrategy {
     phaseLabel = "Phase 1 — Stop the Bleed";
     if (topSuggestion) {
       const pct = Math.min(100, Math.round((topSuggestion.monthlyDelta / Math.abs(projectedNextMonthNet)) * 100));
-      phaseDetail = `Full-month cycle projecting ${formatDollars(Math.abs(projectedNextMonthNet))} loss. ${topSuggestion.actionLabel} ${topSuggestion.categoryName} alone closes ${pct}% of it.`;
+      phaseDetail = `Full-month cycle projecting ${formatCurrencyCompact(Math.abs(projectedNextMonthNet))} loss. ${topSuggestion.actionLabel} ${topSuggestion.categoryName} alone closes ${pct}% of it.`;
     } else {
-      phaseDetail = `Full-month cycle projecting ${formatDollars(Math.abs(projectedNextMonthNet))} loss. No clear cut targets — review categories.`;
+      phaseDetail = `Full-month cycle projecting ${formatCurrencyCompact(Math.abs(projectedNextMonthNet))} loss. No clear cut targets — review categories.`;
     }
   } else if (bufferCurrentCents < BUFFER_TARGET_CENTS) {
     phase = "build_buffer";
     phaseLabel = "Phase 2 — Build the Buffer";
     const monthlyPace = projectedNextMonthNet;
     const eta = monthlyPace > 0 ? Math.ceil(bufferRemainingCents / monthlyPace) : null;
-    const paceText = eta !== null ? `~${eta} mo at +${formatDollars(monthlyPace)}/mo net` : "no surplus yet";
-    phaseDetail = `Build ${formatDollars(bufferRemainingCents)} more buffer before Houston (${paceText}). Prevents missed obligations during cash crunches.`;
+    const paceText = eta !== null ? `~${eta} mo at +${formatCurrencyCompact(monthlyPace)}/mo net` : "no surplus yet";
+    phaseDetail = `Build ${formatCurrencyCompact(bufferRemainingCents)} more buffer before Houston (${paceText}). Prevents missed obligations during cash crunches.`;
   } else {
     phase = "save";
     phaseLabel = "Phase 3 — Save & Grow";
-    phaseDetail = `Buffer full. Houston needs ${formatDollars(moveRequiredPaceCents)}/mo to hit ${moveDate ?? "target"}. Surplus beyond that → debt avalanche extras.`;
+    phaseDetail = `Buffer full. Houston needs ${formatCurrencyCompact(moveRequiredPaceCents)}/mo to hit ${moveDate ?? "target"}. Surplus beyond that → debt avalanche extras.`;
   }
 
   return {
@@ -845,9 +820,6 @@ function _getBudgetStrategy(): BudgetStrategy {
   };
 }
 
-function formatDollars(cents: number): string {
-  return `$${Math.round(cents / 100).toLocaleString()}`;
-}
 
 
 // ============================================================
@@ -998,7 +970,7 @@ function computeSuggestions(): BudgetSuggestion[] {
         // User has a budget but ideal is tighter — propose lowering it.
         mode = "tighten";
         suggestedBudget = idealTarget;
-        reasoning = `Honoring ${formatDollars(currentBudget)}/mo budget — push lower to ${formatDollars(idealTarget)}/mo for more savings`;
+        reasoning = `Honoring ${formatCurrencyCompact(currentBudget)}/mo budget — push lower to ${formatCurrencyCompact(idealTarget)}/mo for more savings`;
         actionLabel = "Tighten";
       } else {
         // All other cases skip:
@@ -1243,7 +1215,7 @@ export function getActionQueue(): ActionItem[] {
       kind: "honor_blown_budget",
       priority,
       title: `Honor ${row.categoryName} budget`,
-      detail: `${formatDollars(row.spent)} spent vs ${formatDollars(row.budgeted)} budget · ${formatDollars(overage)} over`,
+      detail: `${formatCurrencyCompact(row.spent)} spent vs ${formatCurrencyCompact(row.budgeted)} budget · ${formatCurrencyCompact(overage)} over`,
       monthlyImpact: overage,
       ctaLabel: "View row",
       ctaType: "scroll",
@@ -1265,8 +1237,8 @@ export function getActionQueue(): ActionItem[] {
       priority: s.priority,
       title: `${s.actionLabel} ${s.categoryName}`,
       detail: s.currentBudget !== null
-        ? `Currently budgeted at ${formatDollars(s.currentBudget)} · spending ${formatDollars(s.current30dSpend)} (30d) · target ${formatDollars(s.suggestedBudget)}`
-        : `No budget yet · spending ${formatDollars(s.current30dSpend)} (30d) · suggest ${formatDollars(s.suggestedBudget)}`,
+        ? `Currently budgeted at ${formatCurrencyCompact(s.currentBudget)} · spending ${formatCurrencyCompact(s.current30dSpend)} (30d) · target ${formatCurrencyCompact(s.suggestedBudget)}`
+        : `No budget yet · spending ${formatCurrencyCompact(s.current30dSpend)} (30d) · suggest ${formatCurrencyCompact(s.suggestedBudget)}`,
       monthlyImpact: s.monthlyDelta,
       ctaLabel: s.actionLabel,
       ctaType: "tag",
@@ -1291,7 +1263,7 @@ export function getActionQueue(): ActionItem[] {
       kind: "kill_subscription",
       priority: sub.monthlyCost >= 5000 ? "high" : sub.monthlyCost >= 2000 ? "medium" : "low",
       title: `Cancel ${sub.merchant}`,
-      detail: `On kill list · ${formatDollars(sub.monthlyCost)}/mo · ${formatDollars(sub.monthlyCost * 12)}/yr`,
+      detail: `On kill list · ${formatCurrencyCompact(sub.monthlyCost)}/mo · ${formatCurrencyCompact(sub.monthlyCost * 12)}/yr`,
       monthlyImpact: sub.monthlyCost,
       ctaLabel: "Mark cancelled",
       ctaType: "tag",
@@ -1339,8 +1311,8 @@ export function getActionQueue(): ActionItem[] {
       title: `Set auto-pay on ${missingAutopay.length} debt${missingAutopay.length === 1 ? "" : "s"}`,
       detail:
         lateFeeMonthly > 0
-          ? `${formatDollars(lateFeeMonthly)}/mo in late fees recoverable · ${formatDollars(totalMins)} in minimums to cover`
-          : `${formatDollars(totalMins)} in minimums currently manual`,
+          ? `${formatCurrencyCompact(lateFeeMonthly)}/mo in late fees recoverable · ${formatCurrencyCompact(totalMins)} in minimums to cover`
+          : `${formatCurrencyCompact(totalMins)} in minimums currently manual`,
       monthlyImpact: lateFeeMonthly, // late fees disappear with autopay
       ctaLabel: "Open /debts",
       ctaType: "link",
@@ -1410,7 +1382,7 @@ export function getActionQueue(): ActionItem[] {
       kind: "pace_warning",
       priority: projectedOverage >= 30000 ? "high" : "medium",
       title: `${row.categoryName} on track to blow budget`,
-      detail: `${formatDollars(mtdCents)}/${formatDollars(row.budgetCents)} MTD · projected ${formatDollars(projectedMonthCents)} EOM`,
+      detail: `${formatCurrencyCompact(mtdCents)}/${formatCurrencyCompact(row.budgetCents)} MTD · projected ${formatCurrencyCompact(projectedMonthCents)} EOM`,
       monthlyImpact: projectedOverage,
       ctaLabel: "View row",
       ctaType: "scroll",

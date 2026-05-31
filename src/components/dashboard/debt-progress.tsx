@@ -72,43 +72,43 @@ export function DebtProgress({ debts, totalActive, totalOriginal, progress, mont
           </div>
         )}
 
-        {/* This-month progress against the smart-allocation plan */}
-        {monthRecommended > 0 && (
-          <div className="rounded-md bg-muted/40 px-3 py-2 space-y-1.5">
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">This month vs. plan</span>
-              <span
-                className={`font-medium ${
-                  monthActual >= monthRecommended
-                    ? "text-emerald-400"
-                    : monthActual >= monthRecommended * 0.85
-                      ? "text-amber-400"
-                      : "text-red-400"
-                }`}
-              >
-                {monthRecommended > 0 ? Math.round((monthActual / monthRecommended) * 100) : 0}%
-              </span>
+        {/* This-month progress against the smart-allocation plan. Compare actual
+            against a *pro-rated* recommended (recommended × elapsed-fraction) so
+            day 2 of the month doesn't render red 0% just because the paychecks
+            haven't hit yet. The full recommended is still shown as the target. */}
+        {monthRecommended > 0 && (() => {
+          const today = new Date();
+          const dayOfMonth = today.getDate();
+          const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+          const elapsedFraction = dayOfMonth / daysInMonth;
+          const proRatedTarget = monthRecommended * elapsedFraction;
+          const pace = proRatedTarget > 0 ? monthActual / proRatedTarget : 0;
+          const fullPct = Math.round((monthActual / monthRecommended) * 100);
+          const tone =
+            pace >= 1
+              ? { text: "text-emerald-400", bar: "bg-emerald-500" }
+              : pace >= 0.85
+                ? { text: "text-amber-400", bar: "bg-amber-500" }
+                : { text: "text-red-400", bar: "bg-red-500" };
+          const fillPct = Math.min(100, Math.round((monthActual / monthRecommended) * 100));
+          return (
+            <div className="rounded-md bg-muted/40 px-3 py-2 space-y-1.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">
+                  This month vs. plan{dayOfMonth <= 10 ? " (pro-rated)" : ""}
+                </span>
+                <span className={`font-medium ${tone.text}`}>{fullPct}%</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                <div className={`h-full ${tone.bar}`} style={{ width: `${fillPct}%` }} />
+              </div>
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{formatCurrency(monthActual)} paid</span>
+                <span>of {formatCurrency(monthRecommended)} recommended</span>
+              </div>
             </div>
-            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-              <div
-                className={`h-full ${
-                  monthActual >= monthRecommended
-                    ? "bg-emerald-500"
-                    : monthActual >= monthRecommended * 0.85
-                      ? "bg-amber-500"
-                      : "bg-red-500"
-                }`}
-                style={{
-                  width: `${Math.min(100, monthRecommended > 0 ? (monthActual / monthRecommended) * 100 : 0)}%`,
-                }}
-              />
-            </div>
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>{formatCurrency(monthActual)} paid</span>
-              <span>of {formatCurrency(monthRecommended)} recommended</span>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Individual debts. Credit cards (revolving) don't get a payoff bar —
             their "original balance" is meaningless. Installment loans only get
@@ -131,6 +131,14 @@ export function DebtProgress({ debts, totalActive, totalOriginal, progress, mont
               </div>
             );
           })}
+          {debts.length > 4 && (
+            <a
+              href="/debts"
+              className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 pt-1"
+            >
+              +{debts.length - 4} more · view all →
+            </a>
+          )}
         </div>
       </CardContent>
     </Card>

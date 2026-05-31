@@ -81,8 +81,11 @@ export default function DebtsPage() {
     );
   }
 
-  // Compute summary values
-  const totalDebt = allDebts.reduce((s, d) => s + d.currentBalance, 0);
+  // Compute summary values. Total Debt headline + subtitle ("across N active
+  // debts") both scope to status=active to stay self-consistent. Original +
+  // paid-off totals span all statuses so the "you've paid off $X of $Y" cards
+  // still credit fully-settled debts.
+  const totalDebt = activeDebts.reduce((s, d) => s + d.currentBalance, 0);
   const totalOriginal = allDebts.reduce((s, d) => s + d.originalBalance, 0);
   const totalPaidOff = totalOriginal - totalDebt;
   const totalMinimums = activeDebts.reduce((s, d) => s + d.minimumPayment, 0);
