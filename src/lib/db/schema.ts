@@ -65,7 +65,7 @@ export const transactionTags = sqliteTable("transaction_tags", {
 export const transactions = sqliteTable("transactions", {
   id: text("id").primaryKey(),
   accountId: text("account_id").references(() => accounts.id),
-  amount: integer("amount").notNull(), // cents, positive = expense, negative = income
+  amount: integer("amount").notNull(), // cents, always positive — direction comes from `type`. Set by sync/teller.ts via Math.abs().
   type: text("type").notNull(), // "expense" | "income"
   description: text("description").notNull(), // raw bank description
   merchant: text("merchant"), // normalized merchant name (from Teller counterparty)
@@ -136,6 +136,28 @@ export const financialPlans = sqliteTable("financial_plans", {
   notes: text("notes"), // JSON
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
+});
+
+/**
+ * Action-plan checklist items — strategic next steps the user is actively
+ * working through (e.g. "set autopay on 5 debts", "cancel OpenAI"). Distinct
+ * from `financial_plans` / `planLineItems` which model goal budgets like the
+ * Houston move. These are short-horizon to-do items with status tracking.
+ */
+export const actionPlanItems = sqliteTable("action_plan_items", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  // Phase grouping for ordering: "now" | "this_week" | "this_month" | "ongoing"
+  phase: text("phase").notNull().default("now"),
+  status: text("status").notNull().default("pending"), // "pending" | "in_progress" | "completed" | "skipped"
+  estimatedSavingsCents: integer("estimated_savings_cents"), // optional /mo impact
+  link: text("link"), // optional internal route, e.g. "/debts"
+  notes: text("notes"), // user notes
+  sortOrder: integer("sort_order").notNull().default(0),
+  dueAt: text("due_at"),
+  completedAt: text("completed_at"),
+  createdAt: text("created_at").notNull(),
 });
 
 export const planLineItems = sqliteTable("plan_line_items", {
@@ -265,6 +287,44 @@ export const creditFactors = sqliteTable("credit_factors", {
   totalCreditLimit: integer("total_credit_limit"), // cents
   notes: text("notes"),
   createdAt: text("created_at").notNull(),
+});
+
+// ============================================================
+// CREDIT REPORT TRIAGE
+// ============================================================
+
+export const creditReportItems = sqliteTable("credit_report_items", {
+  id: text("id").primaryKey(),
+  creditor: text("creditor").notNull(), // who currently owns/reports it
+  originalCreditor: text("original_creditor"), // for collections — who held the original debt
+  accountLast4: text("account_last4"),
+  // category drives the section the item appears in
+  category: text("category").notNull(), // "active" | "authorized_user" | "charge_off" | "collection"
+  // status drives the action workflow
+  status: text("status").notNull().default("negotiate"), // "pay" | "negotiate" | "settle" | "dispute" | "settled" | "removed" | "ignore"
+  balanceCents: integer("balance_cents").notNull(),
+  settlementOfferCents: integer("settlement_offer_cents"), // what user is offering / has offered
+  settledAmountCents: integer("settled_amount_cents"), // actually paid to settle
+  firstDelinquencyDate: text("first_delinquency_date"), // YYYY-MM — drives 7yr fall-off
+  lastReportedDate: text("last_reported_date"),
+  // Statute of limitations: derived from firstDelinquencyDate + state SoL years.
+  // Stored explicitly so user can override per item.
+  solDate: text("sol_date"), // YYYY-MM-DD — past this date, can't be sued for the debt
+  fallOffDate: text("fall_off_date"), // YYYY-MM-DD — auto-removed from credit report
+  // Likely to surface on Houston rental application background check
+  moveRelevant: integer("move_relevant", { mode: "boolean" }).notNull().default(false),
+  // Points at another item this is a duplicate of (e.g. Portfolio Recovery → Credit One)
+  duplicateOfId: text("duplicate_of_id"),
+  notes: text("notes"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const creditSettlementBudget = sqliteTable("credit_settlement_budget", {
+  id: text("id").primaryKey(),
+  budgetCents: integer("budget_cents").notNull(),
+  notes: text("notes"),
+  updatedAt: text("updated_at").notNull(),
 });
 
 // ============================================================

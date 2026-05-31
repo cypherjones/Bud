@@ -47,3 +47,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# claude code local config
+.claude/
+
+# personal planning notes — kept local, not for git history
+/BUDGET_FOR_APRIL.md
+/M1_BRIEF.md
+/MAY_2026.md
+/NOTE_FOR_APRIL.md
+/PLAN.md
+/PLAN_2026-05_to_2027-02.md
+/STATE.md

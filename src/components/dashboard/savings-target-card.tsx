@@ -11,12 +11,17 @@ type Props = {
     daysWindow: number;
     pastSpending: number;
     pastRecurringSpending: number;
+    alreadySaved: number;
   };
 };
 
 export function SavingsTargetCard({ data }: Props) {
   const positive = data.target > 0;
   const color = positive ? "text-emerald-500" : "text-amber-500";
+  const remaining = Math.max(0, data.target - data.alreadySaved);
+  const progressPct = data.target > 0
+    ? Math.min(100, Math.round((data.alreadySaved / data.target) * 100))
+    : 0;
 
   return (
     <Card>
@@ -38,6 +43,24 @@ export function SavingsTargetCard({ data }: Props) {
           )}
         </div>
 
+        {/* Progress against the target — credit for transfers already made. */}
+        {positive && data.alreadySaved > 0 && (
+          <div className="mt-3 space-y-1.5">
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">
+                {formatCurrency(data.alreadySaved)} moved · {formatCurrency(remaining)} to go
+              </span>
+              <span className="font-medium text-emerald-500">{progressPct}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full bg-emerald-500"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Breakdown — what feeds into the number */}
         <div className="mt-4 space-y-1.5 text-xs">
           <div className="flex justify-between">
@@ -49,7 +72,7 @@ export function SavingsTargetCard({ data }: Props) {
             <span className="font-medium text-red-500">−{formatCurrency(data.recurringBills)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Discretionary buffer</span>
+            <span className="text-muted-foreground">Discretionary spend</span>
             <span className="font-medium text-red-500">−{formatCurrency(data.discretionaryBuffer)}</span>
           </div>
           <div className="border-t border-border pt-1.5 flex justify-between">
@@ -59,7 +82,7 @@ export function SavingsTargetCard({ data }: Props) {
         </div>
 
         <p className="text-xs text-muted-foreground mt-3">
-          Buffer estimated from {formatCurrency(data.pastSpending)} of past-30-day spending minus one cycle of recurring bills.
+          Discretionary spend estimated from {formatCurrency(data.pastSpending)} of past-30-day spending minus one cycle of recurring bills.
         </p>
       </CardContent>
     </Card>

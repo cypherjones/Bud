@@ -3,23 +3,26 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils/format";
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
+import { TrendingDown } from "lucide-react";
 
 type Props = {
   velocity: {
     totalSpent: number;
     dailyRate: number;
-    projectedMonthTotal: number;
+    projectedMonthTotal: number | null;
     daysElapsed: number;
     daysRemaining: number;
     daysInMonth: number;
     totalBudget: number;
+    rateBasis: "mtd" | "trailing_30d";
     onTrack: boolean | null;
   };
   dailySpending: { date: string; expenses: number }[];
+  spendingTrend: number | null;
 };
 
-export function SpendingVelocity({ velocity, dailySpending }: Props) {
-  // Build cumulative spending data
+export function SpendingVelocity({ velocity, dailySpending, spendingTrend }: Props) {
+  // Cumulative MTD spending for the sparkline.
   let cumulative = 0;
   const cumulativeData = dailySpending.map((d) => {
     cumulative += d.expenses / 100;
@@ -29,36 +32,56 @@ export function SpendingVelocity({ velocity, dailySpending }: Props) {
     };
   });
 
-  // No spending data this month yet — don't claim "Under budget pace" on $0.
   const noDataYet = velocity.totalSpent === 0;
-  const paceLabel = noDataYet
-    ? `Day ${velocity.daysElapsed} of month — no data yet`
-    : velocity.totalBudget > 0
-      ? velocity.onTrack ? "Under budget pace" : "Over budget pace"
-      : `${velocity.daysRemaining} days left`;
+  const usingTrailing = velocity.rateBasis === "trailing_30d";
+  const trendLabel = spendingTrend === null
+    ? null
+    : `${spendingTrend >= 0 ? "+" : ""}${spendingTrend}% vs same period last month`;
+  const trendColor = spendingTrend === null
+    ? "text-muted-foreground"
+    : spendingTrend > 0
+      ? "text-red-500"
+      : "text-emerald-500";
 
   return (
     <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">Spending Velocity</CardTitle>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="text-sm font-medium text-muted-foreground">Spent this month</CardTitle>
+        <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center">
+          <TrendingDown className="w-5 h-5 text-red-500" />
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="flex items-baseline gap-2">
-          <span className="text-2xl font-bold tracking-tight">
-            {formatCurrency(velocity.dailyRate)}
-          </span>
+        {/* Headline: month-to-date total + trend */}
+        <div className="text-3xl font-bold tracking-tight">
+          {formatCurrency(velocity.totalSpent)}
+        </div>
+        <div className="flex items-center gap-2 mt-1 text-sm">
+          <span className="text-muted-foreground">month-to-date</span>
+          {trendLabel && (
+            <span className={`font-medium ${trendColor}`}>{trendLabel}</span>
+          )}
+        </div>
+
+        {/* Velocity sub-stat */}
+        <div className="mt-4 flex items-baseline gap-2">
+          <span className="text-xl font-semibold">{formatCurrency(velocity.dailyRate)}</span>
           <span className="text-xs text-muted-foreground">/day</span>
-        </div>
-        <div className="flex items-center gap-1 mt-1">
-          <span className={`text-xs ${velocity.onTrack === false ? "text-red-500" : "text-muted-foreground"}`}>
-            {paceLabel}
+          <span className="text-xs text-muted-foreground">·</span>
+          <span className="text-xs text-muted-foreground">
+            {noDataYet
+              ? `Day ${velocity.daysElapsed} — no data yet`
+              : usingTrailing
+                ? "trailing 30-day avg"
+                : "month-to-date avg"}
           </span>
         </div>
-        {!noDataYet && (
-          <p className="text-xs text-muted-foreground mt-1">
-            Projected: {formatCurrency(velocity.projectedMonthTotal)} this month
-          </p>
-        )}
+        <p className="text-xs text-muted-foreground mt-1">
+          {velocity.daysRemaining} {velocity.daysRemaining === 1 ? "day" : "days"} left in month
+          {velocity.projectedMonthTotal !== null && (
+            <> · projected {formatCurrency(velocity.projectedMonthTotal)}</>
+          )}
+        </p>
 
         {cumulativeData.length > 2 && (
           <div className="mt-3">

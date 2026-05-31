@@ -258,6 +258,152 @@ export function addMonths(months: number): Date {
   return d;
 }
 
+/**
+ * Walks a single debt month-by-month at a fixed payment to compute exact
+ * interest accrued. Mirrors the multi-debt simulator but for one balance —
+ * used by the inline what-if calculator so the dollars match what you'd
+ * see in the full strategy report.
+ */
+export function singleDebtPayoff(
+  balance: number,
+  monthlyPayment: number,
+  annualRate: number,
+): { months: number | null; totalInterest: number; totalPaid: number } {
+  if (balance <= 0) return { months: 0, totalInterest: 0, totalPaid: 0 };
+  if (monthlyPayment <= 0) return { months: null, totalInterest: 0, totalPaid: 0 };
+
+  const monthlyRate = annualRate / 12;
+  if (monthlyRate > 0 && monthlyPayment <= balance * monthlyRate) {
+    return { months: null, totalInterest: 0, totalPaid: 0 };
+  }
+
+  let bal = balance;
+  let totalInterest = 0;
+  let totalPaid = 0;
+  for (let m = 1; m <= 600; m++) {
+    const interest = monthlyRate > 0 ? Math.round(bal * monthlyRate) : 0;
+    bal += interest;
+    totalInterest += interest;
+    const pay = Math.min(monthlyPayment, bal);
+    bal -= pay;
+    totalPaid += pay;
+    if (bal <= 0) return { months: m, totalInterest, totalPaid };
+  }
+  return { months: null, totalInterest, totalPaid };
+}
+
+export type SimulatorDebt = {
+  id: string;
+  creditorName: string;
+  currentBalance: number; // cents
+  interestRate: number; // annual decimal
+  minimumPayment: number; // cents
+};
+
+export type SimulationResult = {
+  monthsToDebtFree: number | null; // null if interest exceeds payments forever
+  totalInterestPaid: number; // cents
+  totalPaid: number; // cents (interest + principal)
+  payoffOrder: { debtId: string; creditorName: string; payoffMonth: number; balance: number }[];
+};
+
+/**
+ * Walks every active debt forward month-by-month applying minimums + extras.
+ * Strategy:
+ *   - "avalanche" — extra always goes to the debt with the highest APR
+ *   - "snowball" — extra always goes to the debt with the smallest balance
+ * When a debt hits zero, its minimum payment rolls into the extra pool (the
+ * "snowball effect" — cash freed by paid-off debts accelerates the rest).
+ *
+ * Hard cap of 600 months (50 years) — if we can't pay it off in that window,
+ * the minimums don't cover interest and the plan is mathematically broken.
+ */
+export function simulateDebtPayoff(
+  debts: SimulatorDebt[],
+  extraMonthly: number,
+  strategy: "avalanche" | "snowball" = "avalanche",
+): SimulationResult {
+  const ds = debts
+    .filter((d) => d.currentBalance > 0)
+    .map((d) => ({ ...d, balance: d.currentBalance }));
+
+  if (ds.length === 0) {
+    return { monthsToDebtFree: 0, totalInterestPaid: 0, totalPaid: 0, payoffOrder: [] };
+  }
+
+  let totalInterest = 0;
+  let totalPaid = 0;
+  const payoffOrder: SimulationResult["payoffOrder"] = [];
+  const startingBalances = new Map(ds.map((d) => [d.id, d.currentBalance]));
+  let extraPool = extraMonthly;
+
+  for (let month = 1; month <= 600; month++) {
+    if (ds.every((d) => d.balance <= 0)) {
+      return {
+        monthsToDebtFree: month - 1,
+        totalInterestPaid: totalInterest,
+        totalPaid,
+        payoffOrder,
+      };
+    }
+
+    // 1. Accrue interest.
+    for (const d of ds) {
+      if (d.balance <= 0) continue;
+      const monthlyRate = d.interestRate / 12;
+      const interest = Math.round(d.balance * monthlyRate);
+      d.balance += interest;
+      totalInterest += interest;
+    }
+
+    // 2. Apply minimum payments.
+    let availableExtra = extraPool;
+    for (const d of ds) {
+      if (d.balance <= 0) continue;
+      const pay = Math.min(d.minimumPayment, d.balance);
+      d.balance -= pay;
+      totalPaid += pay;
+      // If minimum more than wiped balance (last month edge case), surplus rolls
+      // into available extra to cover the next-priority debt this month.
+      const overpaid = d.minimumPayment - pay;
+      if (overpaid > 0) availableExtra += overpaid;
+    }
+
+    // 3. Apply extra to the strategy-chosen debt.
+    const targets = ds.filter((d) => d.balance > 0);
+    if (targets.length > 0 && availableExtra > 0) {
+      targets.sort((a, b) => {
+        if (strategy === "avalanche") return b.interestRate - a.interestRate;
+        return a.balance - b.balance;
+      });
+      let remaining = availableExtra;
+      for (const t of targets) {
+        if (remaining <= 0) break;
+        const pay = Math.min(remaining, t.balance);
+        t.balance -= pay;
+        totalPaid += pay;
+        remaining -= pay;
+      }
+    }
+
+    // 4. Roll any newly-zeroed minimums into the extra pool for next month.
+    for (const d of ds) {
+      if (d.balance <= 0 && !payoffOrder.find((p) => p.debtId === d.id)) {
+        payoffOrder.push({
+          debtId: d.id,
+          creditorName: d.creditorName,
+          payoffMonth: month,
+          balance: startingBalances.get(d.id) ?? 0,
+        });
+        extraPool += d.minimumPayment;
+      }
+    }
+  }
+
+  // Hit the cap — minimums don't cover interest on at least one debt.
+  return { monthsToDebtFree: null, totalInterestPaid: totalInterest, totalPaid, payoffOrder };
+}
+
 function buildProjectedImpact(
   allocations: { debt: Debt; extraPayment: number }[],
   surplus: number

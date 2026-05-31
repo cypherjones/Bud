@@ -4,8 +4,10 @@ import { newId } from "@/lib/utils/ids";
 import { now, today, formatCurrency, parseDollarsToCents } from "@/lib/utils/format";
 import { calculateDebtAllocation } from "@/lib/utils/debt-engine";
 import { createTransaction, findAccountByQuery } from "@/lib/actions/transactions";
-import { getMonthlyAllocationVsActual } from "@/lib/actions/debts";
+import { getMonthlyAllocationVsActual, getUpcomingDebtDeadlines } from "@/lib/actions/debts";
 import { getTaxOverview } from "@/lib/actions/taxes";
+import { getTotalBalance, getDebtSummary, getUpcomingBillCluster, getSavingsTarget } from "@/lib/actions/dashboard";
+import { getSubscriptionAudit, getFrivolousSpending } from "@/lib/actions/reports";
 
 type ToolInput = Record<string, unknown>;
 
@@ -34,8 +36,14 @@ export async function handleToolCall(
       return handleGetDebtAllocation(input);
     case "summarize_debt_month":
       return handleSummarizeDebtMonth(input);
+    case "morning_brief":
+      return handleMorningBrief();
+    case "weekly_review":
+      return handleWeeklyReview();
     case "summarize_tax_situation":
       return handleSummarizeTaxSituation();
+    case "suggest_savings_cuts":
+      return handleSuggestSavingsCuts(input);
     case "create_financial_plan":
       return handleCreateFinancialPlan(input);
     case "add_plan_line_item":
@@ -479,6 +487,174 @@ function handleSummarizeDebtMonth(input: ToolInput): string {
   });
 }
 
+function handleMorningBrief(): string {
+  const balance = getTotalBalance();
+  const debtData = getDebtSummary();
+  const debtDeadlines = getUpcomingDebtDeadlines(7);
+  const billCluster = getUpcomingBillCluster(14);
+  const savingsTarget = getSavingsTarget();
+  const todayStr = today();
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toISOString().split("T")[0];
+
+  // Last-24h activity from transactions table.
+  const recentTxns = db
+    .select({
+      amount: schema.transactions.amount,
+      type: schema.transactions.type,
+      description: schema.transactions.description,
+      merchant: schema.transactions.merchant,
+      date: schema.transactions.date,
+    })
+    .from(schema.transactions)
+    .where(gte(schema.transactions.date, yesterdayStr))
+    .orderBy(desc(schema.transactions.date))
+    .limit(10)
+    .all();
+
+  // Today's recurring bills.
+  const todaysBills = db
+    .select({
+      merchant: schema.recurringTransactions.merchant,
+      amount: schema.recurringTransactions.amount,
+      groupName: schema.categoryGroups.name,
+    })
+    .from(schema.recurringTransactions)
+    .leftJoin(schema.categories, eq(schema.recurringTransactions.categoryId, schema.categories.id))
+    .leftJoin(schema.categoryGroups, eq(schema.categories.groupId, schema.categoryGroups.id))
+    .where(and(
+      eq(schema.recurringTransactions.isActive, true),
+      eq(schema.recurringTransactions.nextDueDate, todayStr),
+    ))
+    .all();
+
+  // Pick the highest-priority recommended action.
+  let topAction: string;
+  if (debtDeadlines.length > 0 && debtDeadlines[0].daysAway <= 0) {
+    const d = debtDeadlines[0];
+    topAction = `**${d.creditorName}** is past due — pay ${formatCurrency(d.amount)} immediately${d.note ? ` (${d.note})` : ""}.`;
+  } else if (debtDeadlines.length > 0) {
+    const d = debtDeadlines[0];
+    topAction = `${d.creditorName} needs ${formatCurrency(d.amount)} by ${d.deadline} (in ${d.daysAway} days)${d.note ? ` — ${d.note}` : ""}.`;
+  } else if (billCluster) {
+    topAction = `Bill cluster ${billCluster.startDate}–${billCluster.endDate}: ${formatCurrency(billCluster.totalOutflow)} outflow vs ${formatCurrency(billCluster.totalInflow)} incoming. Make sure liquid balance covers the gap.`;
+  } else if (debtData.monthRecommended > debtData.monthActual) {
+    const gap = debtData.monthRecommended - debtData.monthActual;
+    topAction = `Behind smart-allocation pace by ${formatCurrency(gap)} this month. Log a debt payment if you've already paid one.`;
+  } else if (savingsTarget.target > 0) {
+    topAction = `On track. Free cash this month: ~${formatCurrency(savingsTarget.target)}. Move it toward a goal before it absorbs into discretionary.`;
+  } else {
+    topAction = "No surplus this window. Audit subscriptions or call the suggest_savings_cuts tool for ranked cut candidates.";
+  }
+
+  return JSON.stringify({
+    as_of: todayStr,
+    total_balance: formatCurrency(balance.totalBalance),
+    last_24h: {
+      transaction_count: recentTxns.length,
+      transactions: recentTxns.map((t) => ({
+        date: t.date,
+        type: t.type,
+        amount: formatCurrency(t.amount),
+        merchant: t.merchant ?? t.description,
+      })),
+    },
+    todays_bills: todaysBills.map((b) => ({
+      merchant: b.merchant,
+      amount: formatCurrency(b.amount),
+      direction: b.groupName === "Income" ? "in" : "out",
+    })),
+    deadlines_next_7d: debtDeadlines.map((d) => ({
+      creditor: d.creditorName,
+      amount: formatCurrency(d.amount),
+      deadline: d.deadline,
+      days_away: d.daysAway,
+      note: d.note,
+    })),
+    debt_pace: debtData.monthRecommended > 0
+      ? `${formatCurrency(debtData.monthActual)} of ${formatCurrency(debtData.monthRecommended)} (${Math.round((debtData.monthActual / debtData.monthRecommended) * 100)}%)`
+      : null,
+    savings_target_this_month: formatCurrency(savingsTarget.target),
+    top_action: topAction,
+  });
+}
+
+function handleWeeklyReview(): string {
+  const todayDate = new Date();
+  const weekAgo = new Date(todayDate);
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  const weekAgoStr = weekAgo.toISOString().split("T")[0];
+  const todayStr = todayDate.toISOString().split("T")[0];
+
+  // Past 7 days totals from transactions.
+  const txnTotals = db
+    .select({
+      type: schema.transactions.type,
+      total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)`,
+    })
+    .from(schema.transactions)
+    .where(and(
+      gte(schema.transactions.date, weekAgoStr),
+      lte(schema.transactions.date, todayStr),
+    ))
+    .groupBy(schema.transactions.type)
+    .all();
+  const spent7d = txnTotals.find((t) => t.type === "expense")?.total ?? 0;
+  const income7d = txnTotals.find((t) => t.type === "income")?.total ?? 0;
+
+  // Debt payments logged in the past week.
+  const payments = db
+    .select({
+      amount: schema.debtPayments.amount,
+      date: schema.debtPayments.date,
+      type: schema.debtPayments.type,
+    })
+    .from(schema.debtPayments)
+    .where(and(
+      gte(schema.debtPayments.date, weekAgoStr),
+      lte(schema.debtPayments.date, todayStr),
+    ))
+    .all();
+  const totalDebtPaid = payments.reduce((s, p) => s + p.amount, 0);
+
+  const debtData = getDebtSummary();
+  const billCluster = getUpcomingBillCluster(14);
+  const savingsTarget = getSavingsTarget();
+
+  const monthPace = debtData.monthRecommended > 0
+    ? Math.round((debtData.monthActual / debtData.monthRecommended) * 100)
+    : null;
+
+  let recommendation: string;
+  if (monthPace !== null && monthPace < 50) {
+    const gap = debtData.monthRecommended - debtData.monthActual;
+    recommendation = `Debt pace is ${monthPace}% of plan with most of the month elapsed. Catch up by paying an extra ${formatCurrency(gap)} this week, or accept the slip and revise next month's recommended allocation.`;
+  } else if (billCluster) {
+    recommendation = `Next 14 days: ${formatCurrency(billCluster.totalOutflow)} of bills hits ${billCluster.startDate}–${billCluster.endDate}. Confirm liquid balance covers it before scheduling extra debt payments.`;
+  } else if (savingsTarget.target > 0 && spent7d > savingsTarget.discretionaryBuffer / 4) {
+    recommendation = `Spent ${formatCurrency(spent7d)} in the past week. Target buffer for the month is ${formatCurrency(savingsTarget.discretionaryBuffer)} — that's ${formatCurrency(savingsTarget.discretionaryBuffer / 4)}/week. Revisit subscriptions if you're consistently over.`;
+  } else {
+    recommendation = "On pace. Continue current allocations and check back next week.";
+  }
+
+  return JSON.stringify({
+    period: { start: weekAgoStr, end: todayStr },
+    spent_7d: formatCurrency(spent7d),
+    income_7d: formatCurrency(income7d),
+    net_7d: formatCurrency(income7d - spent7d),
+    debt_payments_7d: {
+      count: payments.length,
+      total: formatCurrency(totalDebtPaid),
+    },
+    month_pace: monthPace !== null ? `${monthPace}% of recommended ${formatCurrency(debtData.monthRecommended)}` : null,
+    next_bill_cluster: billCluster
+      ? `${billCluster.startDate}–${billCluster.endDate}: ${formatCurrency(billCluster.totalOutflow)} (net −${formatCurrency(billCluster.totalOutflow - billCluster.totalInflow)})`
+      : null,
+    recommendation,
+  });
+}
+
 function handleSummarizeTaxSituation(): string {
   const overview = getTaxOverview();
 
@@ -533,6 +709,83 @@ function handleSummarizeTaxSituation(): string {
     aggregate_narration: aggregateParts.join(" "),
     active: rows,
     paid_count: overview.paid.length,
+  });
+}
+
+function handleSuggestSavingsCuts(input: ToolInput): string {
+  const maxItems = Math.min(Math.max(1, (input.max_items as number) || 10), 25);
+  const audit = getSubscriptionAudit();
+  const frivolous = getFrivolousSpending();
+  const target = getSavingsTarget();
+
+  // Active (not yet cancelled, not reimbursable) subscriptions, ranked by
+  // monthly cost. Reimbursable subs aren't savings opportunities — work pays
+  // them back — so excluding here keeps the AI from suggesting cuts that
+  // wouldn't actually free up cash.
+  const subRows = audit.subscriptions
+    .filter((s) => !s.flaggedCancel && !s.flaggedReimbursable)
+    .map((s) => ({
+      kind: "subscription" as const,
+      label: s.merchant,
+      category: s.category,
+      monthly: s.monthlyCost,
+      annual: s.monthlyCost * 12,
+      action: "cancel",
+    }));
+
+  // Frivolous-tagged spending, grouped already as items. Treat the per-item amount
+  // as a one-time cut (annual extrapolation = amount * 12 only for recurring-style
+  // items; here we use the same monthly cost / annual = 12x convention only when
+  // the merchant repeats — for one-offs we just show the dollar value as-is).
+  // Simple v1: use the item amount as monthly impact since frivolous-tagged
+  // expenses are typically near-monthly behaviors (delivery, takeout, etc.).
+  const friviousRows = frivolous.items.map((f) => ({
+    kind: "frivolous" as const,
+    label: f.merchant ?? "Unknown",
+    category: f.categoryName,
+    monthly: f.amount,
+    annual: f.amount * 12,
+    action: "reduce or cut",
+  }));
+
+  const allRows = [...subRows, ...friviousRows]
+    .sort((a, b) => b.monthly - a.monthly)
+    .slice(0, maxItems);
+
+  // Rolling totals for the top-N narration.
+  let cumulativeMonthly = 0;
+  const topN = allRows.map((r) => {
+    cumulativeMonthly += r.monthly;
+    return {
+      kind: r.kind,
+      label: r.label,
+      category: r.category,
+      monthly: formatCurrency(r.monthly),
+      annual: formatCurrency(r.annual),
+      action: r.action,
+      cumulative_monthly: formatCurrency(cumulativeMonthly),
+    };
+  });
+
+  // Phrase top-3 cumulative impact relative to savings target.
+  const top3Total = allRows.slice(0, 3).reduce((s, r) => s + r.monthly, 0);
+  const targetGap = target.target;
+  const top3Pct = targetGap > 0 ? Math.min(100, Math.round((top3Total / targetGap) * 100)) : 0;
+  const headline =
+    targetGap > 0
+      ? `Cancelling the top 3 saves ${formatCurrency(top3Total)}/mo — that's ${top3Pct}% of your ${formatCurrency(targetGap)} monthly savings target.`
+      : `Top 3 cuts free up ${formatCurrency(top3Total)}/mo. No active savings target on file to compare against.`;
+
+  return JSON.stringify({
+    savings_target: {
+      monthly: formatCurrency(target.target),
+      forecasted_income: formatCurrency(target.forecastedIncome),
+      recurring_bills: formatCurrency(target.recurringBills),
+      discretionary_buffer: formatCurrency(target.discretionaryBuffer),
+    },
+    headline,
+    cuts: topN,
+    total_candidates: subRows.length + friviousRows.length,
   });
 }
 

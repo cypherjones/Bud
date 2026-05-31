@@ -17,6 +17,11 @@ type Props = {
     endOfNextMonthBalance: number;
     lowestProjected: { balance: number; date: string } | null;
     projectedNet30: number;
+    survivalFloor: number;
+    breachesFloor: boolean;
+    variableDailyRate: number;
+    cappedCategoryCount: number;
+    variableBreakdown: { categoryName: string; trailing30: number; budget: number | null; effective: number }[];
   };
 };
 
@@ -40,7 +45,8 @@ export function CashFlowForecast({ data }: Props) {
 
   const eomDelta = data.endOfMonthBalance - data.startingBalance;
   const enmDelta = data.endOfNextMonthBalance - data.startingBalance;
-  const lowestIsConcerning = data.lowestProjected !== null && data.lowestProjected.balance < data.startingBalance * 0.5;
+  const lowestIsConcerning = data.breachesFloor;
+  const survivalFloorDollars = data.survivalFloor / 100;
 
   return (
     <div className="space-y-6">
@@ -50,7 +56,7 @@ export function CashFlowForecast({ data }: Props) {
           <CardContent className="pt-5">
             <p className="text-xs text-muted-foreground">Today&apos;s Balance</p>
             <p className="text-2xl font-bold tracking-tight mt-1">{formatCurrency(data.startingBalance)}</p>
-            <p className="text-xs text-muted-foreground mt-1">across non-business accounts</p>
+            <p className="text-xs text-muted-foreground mt-1">cash &amp; savings only</p>
           </CardContent>
         </Card>
         <Card>
@@ -75,14 +81,17 @@ export function CashFlowForecast({ data }: Props) {
             </p>
           </CardContent>
         </Card>
-        <Card className={lowestIsConcerning ? "border-amber-300 dark:border-amber-700" : undefined}>
+        <Card className={lowestIsConcerning ? "border-red-300 bg-red-50/40 dark:border-red-900 dark:bg-red-950/20" : undefined}>
           <CardContent className="pt-5">
             <p className="text-xs text-muted-foreground">Lowest Projected</p>
-            <p className={`text-2xl font-bold tracking-tight mt-1 ${lowestIsConcerning ? "text-amber-600" : ""}`}>
+            <p className={`text-2xl font-bold tracking-tight mt-1 ${lowestIsConcerning ? "text-red-600" : ""}`}>
               {data.lowestProjected ? formatCurrency(data.lowestProjected.balance) : "—"}
             </p>
             {data.lowestProjected && (
               <p className="text-xs text-muted-foreground mt-1">on {shortDate(data.lowestProjected.date)}</p>
+            )}
+            {lowestIsConcerning && (
+              <p className="text-[10px] text-red-600 font-medium mt-1">below survival floor</p>
             )}
           </CardContent>
         </Card>
@@ -108,6 +117,19 @@ export function CashFlowForecast({ data }: Props) {
                 contentStyle={{ borderRadius: 8, fontSize: 12 }}
               />
               <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="2 2" />
+              {data.survivalFloor > 0 && (
+                <ReferenceLine
+                  y={survivalFloorDollars}
+                  stroke="#dc2626"
+                  strokeDasharray="4 4"
+                  label={{
+                    value: `survival floor $${Math.round(survivalFloorDollars)}`,
+                    position: "insideTopRight",
+                    fontSize: 10,
+                    fill: "#dc2626",
+                  }}
+                />
+              )}
               {transitionIdx > 0 && (
                 <ReferenceLine
                   x={chartData[transitionIdx]?.date}
@@ -128,7 +150,22 @@ export function CashFlowForecast({ data }: Props) {
             </LineChart>
           </ResponsiveContainer>
           <p className="text-xs text-muted-foreground mt-2">
-            Walks today&apos;s balance forward day-by-day applying scheduled bills and paychecks from your recurring transactions. Past days are not on this line.
+            Walks today&apos;s balance forward applying scheduled bills, paychecks, and a daily
+            variable-expense burn of <strong>{formatCurrency(data.variableDailyRate)}</strong> (≈{formatCurrency(data.variableDailyRate * 30)}/mo).
+            This rate covers every expense category not on a recurring schedule — groceries, gas, health, restaurants, ad-hoc debt, late fees, etc.
+            {data.cappedCategoryCount > 0 ? (
+              <>
+                {" "}{data.cappedCategoryCount} categor{data.cappedCategoryCount === 1 ? "y" : "ies"} capped by your
+                budget on <a href="/budget" className="underline decoration-dotted">/budget</a> — the projection assumes you honor those budgets.
+                If you don&apos;t, real burn will be higher than this line shows.
+              </>
+            ) : (
+              <>
+                {" "}Derived from trailing-30 non-recurring spending. Set budgets on{" "}
+                <a href="/budget" className="underline decoration-dotted">/budget</a> to make this line reflect your plan instead of historical overspend.
+              </>
+            )}
+            {" "}The red survival floor line ({formatCurrency(data.survivalFloor)}) sums debt minimums + housing — dipping below means a missed obligation.
           </p>
         </CardContent>
       </Card>

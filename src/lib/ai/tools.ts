@@ -228,12 +228,36 @@ export const budTools: Tool[] = [
   },
 
   {
+    name: "morning_brief",
+    description:
+      "Daily-digest view: total balance, last-24h activity, today's scheduled bills, active deadlines within 7 days, and the single highest-priority recommended action right now. Use when the user says 'good morning,' 'what's new,' 'brief me,' or similar opening prompts. Produces specific dollar/date answers — narrate concisely.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "weekly_review",
+    description:
+      "Past 7 days vs plan: actual spending and income totals, debt payments logged, deadlines hit or missed, plus next week's expected bill cluster. Returns variances against the smart-allocation plan and a recommended adjustment. Use when the user asks 'how was last week,' 'weekly check-in,' or 'review the week.'",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
     name: "summarize_tax_situation",
     description:
       "Get a snapshot of all tax obligations: total owed, paid year-to-date, next due date, and per-obligation status (active/paid). Use this when the user asks 'how am I doing on taxes' or wants concrete numbers — not generic advice. Returns specific dollar amounts and dates.",
     input_schema: {
       type: "object" as const,
       properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "suggest_savings_cuts",
+    description:
+      "Get a ranked list of spending cuts that would free cash toward the user's savings target. Combines active subscriptions (sorted by monthly cost) with #frivolous-tagged transactions (sorted by total). Each item carries monthly + annual impact. Also returns the user's current savings target so you can phrase recommendations as 'cancel these N items to add $X/mo and close Y% of your gap.' Use when the user asks 'what should I cut?' or 'how do I hit my savings target?'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        max_items: { type: "number", description: "Maximum cut candidates to return (default 10)." },
+      },
       required: [],
     },
   },

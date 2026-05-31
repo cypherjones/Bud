@@ -2,109 +2,106 @@ import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { formatCurrency } from "@/lib/utils/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import {
+  getUpcomingRecurringEvents,
+  monthlizeRecurring,
+  type RecurringEvent,
+} from "@/lib/actions/dashboard";
+import { getCashFlowForecast } from "@/lib/actions/reports";
 
 export const dynamic = "force-dynamic";
 
 export default async function SchedulePage() {
+  // === Active recurring rows (for monthly totals) ===
+  // We need the full set to compute monthlized income/bills regardless of when
+  // the next occurrence falls; getUpcomingRecurringEvents only emits events
+  // inside the window.
   const recurring = await db
     .select({
       id: schema.recurringTransactions.id,
-      merchant: schema.recurringTransactions.merchant,
       amount: schema.recurringTransactions.amount,
       frequency: schema.recurringTransactions.frequency,
-      nextDueDate: schema.recurringTransactions.nextDueDate,
-      categoryName: schema.categories.name,
-      categoryColor: schema.categories.color,
+      groupName: schema.categoryGroups.name,
     })
     .from(schema.recurringTransactions)
     .leftJoin(schema.categories, eq(schema.recurringTransactions.categoryId, schema.categories.id))
+    .leftJoin(schema.categoryGroups, eq(schema.categories.groupId, schema.categoryGroups.id))
     .where(eq(schema.recurringTransactions.isActive, true))
     .all();
 
-  // Separate income vs expenses
-  const incomeCategories = new Set(["Paycheck", "Income", "Cash Advance"]);
-  const incomeBills = recurring.filter((r) => incomeCategories.has(r.categoryName ?? ""));
-  const expenseBills = recurring.filter((r) => !incomeCategories.has(r.categoryName ?? ""));
-
-  // Build next 30 days of scheduled events
-  const today = new Date();
-  const schedule: { date: string; dayLabel: string; items: typeof recurring }[] = [];
-
-  for (let i = 0; i < 30; i++) {
-    const d = new Date(today);
-    d.setDate(d.getDate() + i);
-    const dateStr = d.toISOString().split("T")[0];
-    const dayOfMonth = d.getDate();
-
-    const dayItems = recurring.filter((r) => {
-      if (!r.nextDueDate) return false;
-      const dueDay = new Date(r.nextDueDate + "T00:00:00").getDate();
-      // Match if this day-of-month equals the due day
-      // For biweekly, also show 15 days later
-      if (r.frequency === "biweekly") {
-        return dayOfMonth === dueDay || dayOfMonth === ((dueDay + 14) % 28 || 28);
-      }
-      return dayOfMonth === dueDay;
-    });
-
-    if (dayItems.length > 0) {
-      const dayLabel = d.toLocaleDateString("en-US", {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-      });
-      const isToday = i === 0;
-      schedule.push({
-        date: dateStr,
-        dayLabel: isToday ? `Today — ${dayLabel}` : dayLabel,
-        items: dayItems,
-      });
-    }
+  // Group-based income classification. Avoids the prior "Paycheck/Income/Cash Advance"
+  // name-string match, which silently mislabeled income that lived under a
+  // non-matching category name.
+  let totalMonthlyIncome = 0;
+  let totalMonthlyExpenses = 0;
+  for (const r of recurring) {
+    if (r.groupName === "Internal") continue; // transfers / round-ups aren't real flow
+    const monthly = monthlizeRecurring(r.amount, r.frequency);
+    if (r.groupName === "Income") totalMonthlyIncome += monthly;
+    else totalMonthlyExpenses += monthly;
   }
-
-  // Monthly totals
-  const totalMonthlyIncome = incomeBills.reduce((s, r) => {
-    if (r.frequency === "biweekly") return s + r.amount * 2;
-    return s + r.amount;
-  }, 0);
-  const totalMonthlyExpenses = expenseBills.reduce((s, r) => s + r.amount, 0);
   const netMonthly = totalMonthlyIncome - totalMonthlyExpenses;
 
-  // Build calendar grid for current month
+  // === Per-occurrence events for the calendar + timeline ===
+  // Same frequency math as getCashFlowForecast (weekly/biweekly/monthly/yearly
+  // all handled), so a biweekly due on the 20th correctly hits the 3rd of next
+  // month, not the bogus "6th of this month" the old code produced.
+  const events = getUpcomingRecurringEvents(30);
+
+  // === Calendar grid for the current month ===
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
   const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
   const daysInMonth = monthEnd.getDate();
   const startDow = monthStart.getDay();
 
-  const calendarDays: { day: number | null; income: number; expense: number; items: string[] }[] = [];
-  // Pad start
+  type DayCell = { day: number | null; income: number; expense: number; items: string[] };
+  const eventsByDate = new Map<string, RecurringEvent[]>();
+  for (const ev of events) {
+    if (!eventsByDate.has(ev.dueDate)) eventsByDate.set(ev.dueDate, []);
+    eventsByDate.get(ev.dueDate)!.push(ev);
+  }
+
+  const calendarDays: DayCell[] = [];
   for (let i = 0; i < startDow; i++) calendarDays.push({ day: null, income: 0, expense: 0, items: [] });
-
   for (let d = 1; d <= daysInMonth; d++) {
-    const dayItems = recurring.filter((r) => {
-      if (!r.nextDueDate) return false;
-      const dueDay = new Date(r.nextDueDate + "T00:00:00").getDate();
-      if (r.frequency === "biweekly") {
-        return d === dueDay || d === ((dueDay + 14) % 28 || 28);
-      }
-      return d === dueDay;
-    });
-
-    const income = dayItems
-      .filter((r) => incomeCategories.has(r.categoryName ?? ""))
-      .reduce((s, r) => s + r.amount, 0);
-    const expense = dayItems
-      .filter((r) => !incomeCategories.has(r.categoryName ?? ""))
-      .reduce((s, r) => s + r.amount, 0);
-
+    const iso = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const dayEvents = eventsByDate.get(iso) ?? [];
+    const income = dayEvents.filter((e) => e.kind === "income").reduce((s, e) => s + e.amount, 0);
+    const expense = dayEvents.filter((e) => e.kind === "expense").reduce((s, e) => s + e.amount, 0);
     calendarDays.push({
       day: d,
       income,
       expense,
-      items: dayItems.map((r) => r.merchant),
+      items: dayEvents.map((e) => e.merchant),
     });
   }
+
+  // === Next-30-days timeline (grouped by date) ===
+  const timeline: { date: string; dayLabel: string; items: RecurringEvent[] }[] = [];
+  for (const ev of events) {
+    const last = timeline[timeline.length - 1];
+    if (last && last.date === ev.dueDate) {
+      last.items.push(ev);
+    } else {
+      const d = new Date(ev.dueDate + "T00:00:00");
+      const dayLabel = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+      const isToday = ev.daysUntil === 0;
+      timeline.push({
+        date: ev.dueDate,
+        dayLabel: isToday ? `Today — ${dayLabel}` : dayLabel,
+        items: [ev],
+      });
+    }
+  }
+
+  // === Projected cash flow — real accounting, not just recurring ===
+  // Pulls today's depository balance, walks scheduled bills + paychecks +
+  // variable-daily-rate burn through the window. Replaces the page's old
+  // hand-rolled "running net" that only summed recurring rows.
+  const cashFlow = getCashFlowForecast(30);
+  const projectedDays = cashFlow.data.filter((d) => d.isProjected);
 
   const monthLabel = today.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
@@ -122,18 +119,20 @@ export default async function SchedulePage() {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <Card>
             <CardContent className="pt-5">
-              <p className="text-xs text-muted-foreground">Monthly Income</p>
+              <p className="text-xs text-muted-foreground">Recurring income</p>
               <p className="text-2xl font-bold tracking-tight mt-1 text-emerald-600">
                 +{formatCurrency(totalMonthlyIncome)}
               </p>
+              <p className="text-[10px] text-muted-foreground mt-1">monthly average from active recurring rows</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-5">
-              <p className="text-xs text-muted-foreground">Monthly Bills</p>
+              <p className="text-xs text-muted-foreground">Recurring bills</p>
               <p className="text-2xl font-bold tracking-tight mt-1 text-red-500">
                 -{formatCurrency(totalMonthlyExpenses)}
               </p>
+              <p className="text-[10px] text-muted-foreground mt-1">monthly average from active recurring rows</p>
             </CardContent>
           </Card>
           <Card>
@@ -141,6 +140,9 @@ export default async function SchedulePage() {
               <p className="text-xs text-muted-foreground">Net After Bills</p>
               <p className={`text-2xl font-bold tracking-tight mt-1 ${netMonthly >= 0 ? "text-emerald-600" : "text-red-500"}`}>
                 {netMonthly >= 0 ? "+" : ""}{formatCurrency(netMonthly)}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                excludes variable spending — see projection below
               </p>
             </CardContent>
           </Card>
@@ -150,7 +152,12 @@ export default async function SchedulePage() {
           {/* Calendar Grid */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm font-medium">{monthLabel}</CardTitle>
+              <div className="flex items-baseline justify-between gap-2">
+                <CardTitle className="text-sm font-medium">{monthLabel}</CardTitle>
+                <p className="text-[11px] text-muted-foreground">
+                  scheduled events from today onward — past days appear empty
+                </p>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-7 gap-px">
@@ -204,22 +211,22 @@ export default async function SchedulePage() {
               <CardTitle className="text-sm font-medium">Next 30 Days</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {schedule.length === 0 ? (
+              {timeline.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">
                   No upcoming bills scheduled
                 </p>
               ) : (
-                schedule.map((day) => (
+                timeline.map((day) => (
                   <div key={day.date}>
                     <p className="text-xs font-semibold text-muted-foreground mb-1.5">
                       {day.dayLabel}
                     </p>
                     <div className="space-y-1.5">
-                      {day.items.map((item, i) => {
-                        const isIncome = incomeCategories.has(item.categoryName ?? "");
+                      {day.items.map((item) => {
+                        const isIncome = item.kind === "income";
                         return (
                           <div
-                            key={i}
+                            key={item.id}
                             className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-accent/30"
                           >
                             <div className="flex items-center gap-2">
@@ -243,46 +250,53 @@ export default async function SchedulePage() {
           </Card>
         </div>
 
-        {/* Running Balance Projection */}
+        {/* Projected Cash Flow — sourced from getCashFlowForecast, not a
+            hand-rolled net. Reflects real balance walking through scheduled
+            bills + paychecks + capped variable burn. */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">Projected Cash Flow — Day by Day</CardTitle>
+            <CardTitle className="text-sm font-medium">Projected Balance — Next 30 Days</CardTitle>
           </CardHeader>
           <CardContent>
+            <div className="mb-3 text-xs text-muted-foreground space-y-0.5">
+              <p>
+                Starts at <span className="font-medium">{formatCurrency(cashFlow.startingBalance)}</span> (cash & savings today).
+                Includes a daily variable-burn rate of <span className="font-medium">{formatCurrency(cashFlow.variableDailyRate)}</span> for groceries/gas/restaurants/health/etc.
+              </p>
+              {cashFlow.breachesFloor && cashFlow.lowestProjected && (
+                <p className="text-red-500 font-medium">
+                  ⚠ Dips below survival floor ({formatCurrency(cashFlow.survivalFloor)}) on{" "}
+                  {new Date(cashFlow.lowestProjected.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}.
+                </p>
+              )}
+            </div>
             <div className="space-y-1">
-              {(() => {
-                let runningNet = 0;
-                return schedule.map((day) => {
-                  const dayIncome = day.items
-                    .filter((r) => incomeCategories.has(r.categoryName ?? ""))
-                    .reduce((s, r) => s + r.amount, 0);
-                  const dayExpense = day.items
-                    .filter((r) => !incomeCategories.has(r.categoryName ?? ""))
-                    .reduce((s, r) => s + r.amount, 0);
-                  const dayNet = dayIncome - dayExpense;
-                  runningNet += dayNet;
-
-                  return (
-                    <div key={day.date} className="flex items-center gap-4 py-1 text-xs">
-                      <span className="w-24 text-muted-foreground">{day.dayLabel}</span>
-                      <span className={`w-24 text-right font-medium ${dayNet >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                        {dayNet >= 0 ? "+" : ""}{formatCurrency(dayNet)}
-                      </span>
-                      <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${runningNet >= 0 ? "bg-emerald-500" : "bg-red-500"}`}
-                          style={{
-                            width: `${Math.min(Math.abs(runningNet) / (totalMonthlyIncome || 1) * 100, 100)}%`,
-                          }}
-                        />
-                      </div>
-                      <span className={`w-24 text-right ${runningNet >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                        {runningNet >= 0 ? "+" : ""}{formatCurrency(runningNet)}
-                      </span>
+              {projectedDays.map((day) => {
+                const dayNet = day.income - day.expenses;
+                const d = new Date(day.date + "T00:00:00");
+                const dayLabel = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                const balanceWidth = Math.min(
+                  Math.abs(day.projectedBalance) / Math.max(cashFlow.startingBalance, 1) * 100,
+                  100,
+                );
+                return (
+                  <div key={day.date} className="flex items-center gap-4 py-1 text-xs">
+                    <span className="w-28 text-muted-foreground">{dayLabel}</span>
+                    <span className={`w-24 text-right font-medium ${dayNet >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                      {dayNet >= 0 ? "+" : ""}{formatCurrency(dayNet)}
+                    </span>
+                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${day.projectedBalance >= 0 ? "bg-emerald-500" : "bg-red-500"}`}
+                        style={{ width: `${balanceWidth}%` }}
+                      />
                     </div>
-                  );
-                });
-              })()}
+                    <span className={`w-24 text-right ${day.projectedBalance >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                      {day.projectedBalance >= 0 ? "+" : ""}{formatCurrency(day.projectedBalance)}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>

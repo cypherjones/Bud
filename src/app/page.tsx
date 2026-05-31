@@ -10,6 +10,9 @@ import { SinceLastVisitStrip } from "@/components/dashboard/since-last-visit-str
 import { BillClusterBanner } from "@/components/dashboard/bill-cluster-banner";
 import { DebtDeadlineBanner } from "@/components/dashboard/debt-deadline-banner";
 import { SavingsTargetCard } from "@/components/dashboard/savings-target-card";
+import { ActionPlanWidget } from "@/components/dashboard/action-plan-widget";
+import { StrategicHero } from "@/components/dashboard/strategic-hero";
+import { getBudgetStrategy, getActionQueue } from "@/lib/actions/budget";
 import { getUpcomingDebtDeadlines } from "@/lib/actions/debts";
 import { Wallet, TrendingDown, TrendingUp } from "lucide-react";
 import {
@@ -19,12 +22,14 @@ import {
   getMovePlan,
   getCreditSummary,
   getTaxSummary,
-  getUpcomingBills,
+  getUpcomingBillsCount,
+  getUpcomingBillsWindow,
   getSinceLastVisit,
   getTotalBalance,
   getDebtFreeProjection,
   getUpcomingBillCluster,
   getSavingsTarget,
+  getKillList,
 } from "@/lib/actions/dashboard";
 import { getSpendingVelocity, getSpendingByDay } from "@/lib/actions/reports";
 import { formatCurrency } from "@/lib/utils/format";
@@ -38,7 +43,7 @@ export default function DashboardPage() {
   const movePlan = getMovePlan();
   const creditData = getCreditSummary();
   const taxData = getTaxSummary();
-  const bills = getUpcomingBills();
+  const upcomingBillsCount = getUpcomingBillsCount();
   const velocity = getSpendingVelocity();
   const monthStart = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; })();
   const dailySpending = getSpendingByDay(monthStart, new Date().toISOString().split("T")[0]);
@@ -46,8 +51,14 @@ export default function DashboardPage() {
   const balanceInfo = getTotalBalance();
   const debtFree = getDebtFreeProjection();
   const billCluster = getUpcomingBillCluster();
-  const debtDeadlines = getUpcomingDebtDeadlines();
+  const debtDeadlines = getUpcomingDebtDeadlines(30);
   const savingsTarget = getSavingsTarget();
+  const bills7d = getUpcomingBillsWindow(7);
+  const killList = getKillList();
+  // Strategic hero — same data /budget uses, surfaced on home so the user
+  // sees phase + projected EOM + top 3 actions without navigating.
+  const budgetStrategy = getBudgetStrategy();
+  const topActions = getActionQueue().slice(0, 3);
 
   // Two distinct empty states:
   //   - hasAccounts: any non-excluded bank account exists (regardless of whether
@@ -55,24 +66,26 @@ export default function DashboardPage() {
   //   - hasMonthData: at least one transaction in the current month. Drives whether
   //     to show real $ values vs. the "month just started" subtitle.
   const hasAccounts = balanceInfo.accountCount > 0;
-  const hasMonthData = metrics.spending > 0 || metrics.income > 0;
+  const hasMonthData = velocity.totalSpent > 0 || metrics.income > 0;
 
+  // velocity.totalSpent is the canonical MTD-spent figure (same filters as
+  // metrics.spending by construction); using it here removes the temptation
+  // to render two different "this month" numbers.
   const spendingTrend =
     metrics.prevSpending > 0
-      ? Math.round(((metrics.spending - metrics.prevSpending) / metrics.prevSpending) * 100)
+      ? Math.round(((velocity.totalSpent - metrics.prevSpending) / metrics.prevSpending) * 100)
       : null;
 
-  const incomeTrend =
-    metrics.prevIncome > 0
-      ? Math.round(((metrics.income - metrics.prevIncome) / metrics.prevIncome) * 100)
+  // Income headline always uses the trailing 30 days. Paychecks land at the
+  // end of the prior month and fund the current month's spending, so a strict
+  // calendar-MTD figure is misleading (it shows $0.05 on May 2 while April's
+  // payroll is what's actually paying May's bills).
+  const incomeValue = metrics.trailing30Income;
+  const trailingIncomeTrend =
+    metrics.priorTrailing30Income > 0
+      ? Math.round(((metrics.trailing30Income - metrics.priorTrailing30Income) / metrics.priorTrailing30Income) * 100)
       : null;
-
-  // For the "month just started" subtitle.
-  const monthName = new Date().toLocaleDateString("en-US", { month: "long" });
-  const dayOfMonth = new Date().getDate();
-  const monthEmptyHint = `${monthName} just started — sync to load`;
-  const monthEarlyHint = `${monthName} day ${dayOfMonth} — sync for the latest`;
-  const emptyMonthSubtitle = dayOfMonth <= 3 ? monthEmptyHint : monthEarlyHint;
+  const incomeSubtitle = !hasAccounts ? "Connect accounts to start" : "Last 30 days";
 
   return (
     <div className="flex flex-col h-screen">
@@ -92,8 +105,16 @@ export default function DashboardPage() {
           <BillClusterBanner cluster={billCluster} />
         </div>
 
-        {/* Top row: key metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        {/* Strategic hero — phase + accounting + top 3 actions. Replaces the
+            "data viewer" feel with "where am I + what to do." */}
+        <div className="mb-6">
+          <StrategicHero strategy={budgetStrategy} topActions={topActions} />
+        </div>
+
+        {/* Top row: balance + income (Monthly Spending merged into the
+            SpendingVelocity card below — they shared a topic and the velocity
+            card had a lot of empty space). */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           <MetricCard
             title="Total Balance"
             icon={<Wallet className="w-5 h-5 text-primary" />}
@@ -101,45 +122,27 @@ export default function DashboardPage() {
             subtitle={
               !hasAccounts
                 ? "Connect accounts to start"
-                : hasMonthData
-                  ? `${formatCurrency(metrics.income - metrics.spending)} net this month`
-                  : `Across ${balanceInfo.accountCount} accounts`
+                : `Across ${balanceInfo.accountCount} ${balanceInfo.accountCount === 1 ? "account" : "accounts"}`
             }
             trend={null}
           />
           <MetricCard
-            title="Monthly Spending"
-            icon={<TrendingDown className="w-5 h-5 text-red-500" />}
-            value={hasAccounts ? formatCurrency(metrics.spending) : "--"}
-            subtitle={
-              !hasAccounts
-                ? "Connect accounts to start"
-                : hasMonthData
-                  ? "This month"
-                  : emptyMonthSubtitle
-            }
-            trend={hasMonthData ? spendingTrend : null}
-            trendInverse
-          />
-          <MetricCard
-            title="Monthly Income"
+            title="Income (30d)"
             icon={<TrendingUp className="w-5 h-5 text-green-500" />}
-            value={hasAccounts ? formatCurrency(metrics.income) : "--"}
-            subtitle={
-              !hasAccounts
-                ? "Connect accounts to start"
-                : hasMonthData
-                  ? "This month"
-                  : emptyMonthSubtitle
-            }
-            trend={hasMonthData ? incomeTrend : null}
+            value={hasAccounts ? formatCurrency(incomeValue) : "--"}
+            subtitle={incomeSubtitle}
+            trend={hasAccounts ? trailingIncomeTrend : null}
           />
         </div>
 
         {/* Middle row: charts */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
           <SpendingOverview data={spendingData} />
-          <SpendingVelocity velocity={velocity} dailySpending={dailySpending} />
+          <SpendingVelocity
+            velocity={velocity}
+            dailySpending={dailySpending}
+            spendingTrend={hasMonthData ? spendingTrend : null}
+          />
           <DebtProgress
             debts={debtData.debts}
             totalActive={debtData.totalActive}
@@ -155,6 +158,15 @@ export default function DashboardPage() {
         {/* Savings target row */}
         <div className="grid grid-cols-1 mb-6">
           <SavingsTargetCard data={savingsTarget} />
+        </div>
+
+        {/* Action Plan: this week's bills + sub kill-list checkbox */}
+        <div className="grid grid-cols-1 mb-6">
+          <ActionPlanWidget
+            bills7d={bills7d}
+            killList={killList.items}
+            killListMonthly={killList.totalMonthly}
+          />
         </div>
 
         {/* Bottom row: planning */}
@@ -178,7 +190,7 @@ export default function DashboardPage() {
                 </div>
                 <div>
                   <p className="text-sm font-medium">Upcoming Bills</p>
-                  <p className="text-xs text-muted-foreground">{bills.length} recurring charges scheduled</p>
+                  <p className="text-xs text-muted-foreground">{upcomingBillsCount} recurring charges scheduled</p>
                 </div>
               </div>
               <span className="text-sm font-medium text-muted-foreground">View Schedule →</span>
@@ -197,25 +209,15 @@ function MetricCard({
   value,
   subtitle,
   trend,
-  trendInverse,
 }: {
   title: string;
   icon: React.ReactNode;
   value: string;
   subtitle: string;
   trend: number | null;
-  trendInverse?: boolean;
 }) {
   const trendColor =
-    trend === null
-      ? ""
-      : trendInverse
-      ? trend <= 0
-        ? "text-green-600"
-        : "text-red-500"
-      : trend >= 0
-      ? "text-green-600"
-      : "text-red-500";
+    trend === null ? "" : trend >= 0 ? "text-green-600" : "text-red-500";
 
   return (
     <Card>

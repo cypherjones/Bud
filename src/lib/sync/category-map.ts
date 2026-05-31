@@ -9,10 +9,10 @@ const TELLER_TO_BUD: Record<string, string> = {
   // Teller category -> Bud category name
   accommodation: "Housing",
   advertising: "Other",
-  bar: "Dining",
+  bar: "Restaurants",
   charity: "Other",
   clothing: "Shopping",
-  dining: "Dining",
+  dining: "Restaurants",
   education: "Other",
   electronics: "Shopping",
   entertainment: "Entertainment",
@@ -69,32 +69,77 @@ const MERCHANT_PATTERNS: [RegExp, string][] = [
   [/\bh\s*e\s*b\b|walmart|kroger|aldi|trader joe|whole foods|instacart|publix/i, "Groceries"],
   [/\btarget\b/i, "Groceries"],
   [/buc\s*ee/i, "Groceries"],
+  // Convenience stores — regional chains commonly miscategorized to "Other"
+  [/honey\s*farms|wawa|sheetz|7[\s-]?eleven|quiktrip|race\s*trac|circle\s*k|cumberland\s*farms/i, "Groceries"],
 
-  // Dining
-  [/\buchi\b|hopdoddy|polvos|sombrero|mint thai|kura|caffvino|josephines|la la land|starbucks|thesis/i, "Dining"],
+  // Restaurants — merged category (was split into Restaurants/Dining/Fast Food).
+  // All eating-out merchants now route here regardless of cuisine/format.
+  [/\buchi\b|hopdoddy|polvos|sombrero|mint thai|kura|caffvino|josephines|la la land|starbucks|thesis/i, "Restaurants"],
 
   // Transport / Gas
   [/\bmurphy\b|exxon|shell|chevron|marathon|buc-ee/i, "Transport"],
   [/car wash/i, "Transport"],
+  // Toll roads (HCTRA = Houston, EZPass / FasTrak / SunPass = various states)
+  [/hctra|ez\s?pass|ezpass|fastrak|sunpass|\btoll(s|way)?\b/i, "Transport"],
+  // DMV / vehicle registration
+  [/\b(mvd|dmv)\b|dept of motor|tag office|vehicle registration/i, "Transport"],
 
-  // Subscriptions
-  [/netflix|hulu|spotify|disney\+|youtube|apple\s*(tv|music|one)|amazon prime|openai|midjourney|dropbox|mega limited|tradingview|excalidraw|nytimes|coinbase|robinhood|rocket lawyer/i, "Subscriptions"],
-  [/zoho/i, "Subscriptions"],
-  [/alpacadb|tiingo/i, "Subscriptions"],
-  [/openart/i, "Subscriptions"],
-  [/atlassian/i, "Subscriptions"],
-  [/onlyfans/i, "Subscriptions"],
+  // === SPECIFIC SUBSCRIPTION SUBCATEGORIES ===
+  // Order matters — first match wins. Specific subcat patterns must precede
+  // the generic "Subscriptions" catchall below, or everything would lump into
+  // the generic bucket and the user's per-subcat budgets (Streaming, AI Tools,
+  // SaaS, Web Hosting) would always read $0.
+
+  // Streaming — video + music + TV/box services
+  [/netflix|hulu|disney\+|disney plus|peacock|paramount\+|hbo\s*max|apple\s*tv|apple\s*music|apple\s*one|youtube\s*(premium|music|tv)|spotify|tidal|pandora|sirius/i, "Streaming"],
+
+  // AI Tools — frontier models + AI-specific products
+  [/openai|chatgpt|anthropic|claude|midjourney|runway|elevenlabs|character\.ai|perplexity|copilot|cursor|replit/i, "AI Tools"],
+  [/openart/i, "AI Tools"],
+
+  // Cloud Storage — file sync / backup services
+  [/dropbox|icloud|onedrive|google\s*drive|google\s*one|backblaze|carbonite|mega\s*limited|sync\.com|pcloud/i, "Cloud Storage"],
+
+  // Web Hosting — server / hosting / infra
+  [/digitalocean|kinsta|pantheon|vercel|netlify|cloudflare|wpengine|bluehost|siteground|hetzner|linode|aws/i, "Web Hosting"],
+
+  // SaaS & Dev Tools — productivity, dev, business software
+  [/supabase|notion|linear|figma|github|gitlab|atlassian|jira|confluence|trello|asana|monday\.com|airtable|zapier|tradingview|excalidraw|alpacadb|tiingo|microsoft\s*\*?\s*microsoft|microsoft\s*365|office\s*365|zoho|littlebird|proton/i, "SaaS & Dev Tools"],
+
+  // News & Media
+  [/nytimes|new york times|wall\s*street\s*journal|wsj|bloomberg|economist|washington\s*post|atlantic|substack/i, "News & Media"],
+
+  // Books & Education — reading + learning subscriptions
+  [/audible|kindle\s*unlimited|kindle\s*unltd|kobo|scribd|coursera|udemy|masterclass|pluralsight|skillshare|brilliant/i, "Books & Education"],
+
+  // Gaming
+  [/xbox|game pass|playstation|nintendo|steam|epic\s*games/i, "Gaming"],
+
+  // DoorDash — DashPass is a sub; everything else is fast food.
+  [/doordash\s*dashpass|dashpass/i, "Subscriptions"],
+  [/doordash/i, "Restaurants"],
+
+  // Adult / niche
+  [/onlyfans/i, "Adult Content"],
+
+  // Generic / catch-all. Anything that didn't match a specific subcategory above
+  // lands here. Apple-com-bill bundled charges that aren't recognizable as
+  // Streaming/AI/Cloud/etc. fall through to this bucket — user re-categorizes
+  // those manually since we can't tell which Apple service is which from the
+  // bank string alone.
+  [/amazon prime|coinbase|robinhood|rocket lawyer|crunchyroll/i, "Subscriptions"],
 
   // Bills & Utilities
   [/georgia power|power company|electric|water|gas co|at&t|\bat\b.*mobile|verizon|t-mobile|comcast|spectrum|xfinity/i, "Bills & Utilities"],
   [/next insur|renters.*ins|condo ins/i, "Bills & Utilities"],
 
-  // Housing
-  [/rent|mortgage|apartment|property mgmt/i, "Housing"],
+  // Housing — Flex (FLEXIBLE FINANCE INC) is a rent-installment service, not a loan
+  [/rent|mortgage|apartment|property mgmt|flexible finance/i, "Housing"],
 
-  // Debt / Loans
-  [/flexible finance|loan payment|past due fee/i, "Debt Payment"],
-  [/\bflex\b/i, "Debt Payment"],
+  // Debt / Loans — credit-card mobile payment strings (Capital One, Chase, etc.)
+  // need to distinguish from card *purchases*, which is why we anchor on PYMT/PAYMENT.
+  [/capital one\s+(mobile\s+)?(pymt|payment)|chase\s+(card)?\s*payment|discover\s+payment|amex\s+(epayment|payment)/i, "Debt Payment"],
+  [/loan payment|past due fee/i, "Debt Payment"],
   [/mypay\s*(repayment|repay|instant advance fees?|fees?)/i, "Loan Payment"],
 
   // Shopping
@@ -102,7 +147,7 @@ const MERCHANT_PATTERNS: [RegExp, string][] = [
   [/vapor\b/i, "Shopping"],
 
   // Transfers (internal moves) — captures "Deposit from <own bank>" and "Transfer Withdrawal To ...XXXX"
-  [/withdrawal to|transfer from|transfer to|transfer withdrawal|round up|moved to chime|moved from checking/i, "Transfers"],
+  [/withdrawal to|transfer from|transfer to|transfer withdrawal|round up|moved to chime|moved (from|to) checking/i, "Transfers"],
   [/deposit from\s+(capital one|simply checking|360|business basic|chime|navy fed|membership share|everyday)/i, "Transfers"],
 
   // P2P
@@ -114,22 +159,19 @@ const MERCHANT_PATTERNS: [RegExp, string][] = [
   // Additional gas
   [/shell|circle k|racetrac|\bqt\b/i, "Gas & Fuel"],
 
-  // Additional
-  [/supabase|pantheon|kinsta|digitalocean|littlebird|proton/i, "SaaS & Dev Tools"],
+  // Other recurring services that didn't fit cleanly above
+  [/experian/i, "SaaS & Dev Tools"], // credit monitoring — closest fit
+
+  // Insurance / auto payments
   [/geico/i, "Auto Insurance"],
   [/bridgecrest/i, "Car Payment"],
   [/afterpay/i, "Loan Payment"],
-  [/experian/i, "Subscriptions"],
-  [/doordash/i, "Subscriptions"],
-  [/anthropic/i, "AI Tools"],
-  [/xbox|game pass/i, "Gaming"],
-  [/peacock/i, "Streaming"],
-  [/disney/i, "Streaming"],
-  [/spotify/i, "Streaming"],
-  [/bloomberg/i, "News & Media"],
-  [/kindle/i, "Subscriptions"],
+
+  // Other groceries / food
   [/publix|kroger/i, "Groceries"],
-  [/chick.fil|whataburger|pizza hut|dunkin/i, "Fast Food"],
+  [/chick.fil|whataburger|pizza hut|dunkin/i, "Restaurants"],
+
+  // Transport
   [/marta breeze/i, "Transport"],
 ];
 

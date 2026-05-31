@@ -1,5 +1,5 @@
 import { db, schema } from "@/lib/db";
-import { desc, eq, and, gte, notInArray } from "drizzle-orm";
+import { desc, eq, and, gte, inArray, notInArray } from "drizzle-orm";
 import { getExcludedAccountIds, getActiveReportingMonth } from "@/lib/actions/dashboard";
 import { EmptyMonthBanner } from "@/components/dashboard/empty-month-banner";
 import { formatCurrency } from "@/lib/utils/format";
@@ -84,11 +84,18 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
       categoryName: schema.categories.name,
       categoryColor: schema.categories.color,
       categoryIcon: schema.categories.icon,
+      accountName: schema.accounts.name,
+      accountInstitution: schema.accounts.institution,
+      accountLastFour: schema.accounts.lastFour,
     })
     .from(schema.transactions)
     .leftJoin(
       schema.categories,
       eq(schema.transactions.categoryId, schema.categories.id),
+    )
+    .leftJoin(
+      schema.accounts,
+      eq(schema.transactions.accountId, schema.accounts.id),
     )
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(schema.transactions.date))
@@ -127,22 +134,30 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
 
   const duplicateCandidates = getDuplicateCandidates();
 
-  // Fetch all tags
+  // Fetch all tags (for the TagEditor dropdown — needs every tag the user could
+  // attach, not just ones already attached).
   const allTags = await db.select().from(schema.tags).all();
 
-  // Fetch transaction-tag mappings
-  const txTagRows = await db
-    .select({
-      transactionId: schema.transactionTags.transactionId,
-      tagId: schema.tags.id,
-      tagName: schema.tags.name,
-      tagColor: schema.tags.color,
-    })
-    .from(schema.transactionTags)
-    .innerJoin(schema.tags, eq(schema.transactionTags.tagId, schema.tags.id))
-    .all();
+  // Fetch transaction-tag mappings — scoped to the transactions on this page
+  // so we don't pull the entire `transaction_tags` table for a single month view.
+  const visibleTxIds = transactions.map((t) => t.id);
+  const txTagRows = visibleTxIds.length > 0
+    ? await db
+        .select({
+          transactionId: schema.transactionTags.transactionId,
+          tagId: schema.tags.id,
+          tagName: schema.tags.name,
+          tagColor: schema.tags.color,
+        })
+        .from(schema.transactionTags)
+        .innerJoin(schema.tags, eq(schema.transactionTags.tagId, schema.tags.id))
+        .where(inArray(schema.transactionTags.transactionId, visibleTxIds))
+        .all()
+    : [];
 
-  // Group tags by transaction ID (deduplicate)
+  // Group tags by transaction ID. Dedup defensively — the schema has no unique
+  // constraint on (transactionId, tagId), so the same pair could appear twice.
+  // See audit follow-up for the migration.
   const tagsByTxId = new Map<string, { id: string; name: string; color: string }[]>();
   const seenTagKeys = new Set<string>();
   for (const row of txTagRows) {
@@ -201,6 +216,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
                   <TableRow>
                     <TableHead className="pl-4">Date</TableHead>
                     <TableHead>Merchant</TableHead>
+                    <TableHead>Account</TableHead>
                     <TableHead>Amount</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead className="pr-4">Tags</TableHead>
@@ -224,6 +240,18 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
                         </TableCell>
                         <TableCell className="font-medium">
                           {tx.merchant ?? tx.description}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          <div className="flex flex-col">
+                            <span className="truncate max-w-[140px]">
+                              {tx.accountName ?? "—"}
+                            </span>
+                            {tx.accountLastFour && (
+                              <span className="text-[10px] text-muted-foreground/70">
+                                ····{tx.accountLastFour}
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell
                           className={

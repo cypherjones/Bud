@@ -130,3 +130,23 @@
     @apply font-sans;
   }
 }
+/* Budget row pulse — fired when window.location.hash points at a row, so
+ * applying an action queue item visibly connects to the budget table. */
+@keyframes budget-row-pulse {
+  0% { background-color: rgba(245, 158, 11, 0.20); box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.5); }
+  100% { background-color: transparent; box-shadow: 0 0 0 0 transparent; }
+}
+.budget-row:target {
+  animation: budget-row-pulse 2s ease-out 1;
+}
+
+/* Bucket section pulse — fires when a bucket card is clicked. Outline-only
+ * pulse (no background fill) since bucket sections already have their own
+ * tinted header. */
+@keyframes bucket-section-pulse {
+  0% { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.55); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.bucket-section:target {
+  animation: bucket-section-pulse 2s ease-out 1;
+}

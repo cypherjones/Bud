@@ -1,6 +1,15 @@
 import { db, schema } from "@/lib/db";
 import { desc, eq, sql, and, gte } from "drizzle-orm";
 import { formatCurrency } from "@/lib/utils/format";
+import {
+  getTotalBalance,
+  getMetrics,
+  getDebtSummary,
+  getDebtFreeProjection,
+  getUpcomingBillCluster,
+  getSavingsTarget,
+} from "@/lib/actions/dashboard";
+import { getUpcomingDebtDeadlines } from "@/lib/actions/debts";
 
 export type FinancialContext = {
   totalBalance: string;
@@ -12,6 +21,9 @@ export type FinancialContext = {
   movePlanSummary: string;
   upcomingBills: string;
   budgetStatus: string;
+  // M4.1 — live state snapshots so the AI doesn't have to call a dozen tools
+  // just to start a conversation.
+  liveStateSnapshot: string;
 };
 
 export async function buildFinancialContext(): Promise<FinancialContext> {
@@ -171,8 +183,55 @@ export async function buildFinancialContext(): Promise<FinancialContext> {
     budgetStatus = `${budgets.length} active budgets:\n${budgetLines.join("\n")}`;
   }
 
+  // === M4.1 live-state snapshot ===
+  // One compact section the AI sees on every chat turn so it can answer
+  // "where am I" without burning multiple tool calls just to load context.
+  const balanceInfo = getTotalBalance();
+  const metrics = getMetrics();
+  const debtData = getDebtSummary();
+  const debtFree = getDebtFreeProjection();
+  const billCluster = getUpcomingBillCluster();
+  const savingsTarget = getSavingsTarget();
+  const debtDeadlines = getUpcomingDebtDeadlines();
+
+  const snapshotParts: string[] = [];
+  snapshotParts.push(`Total liquid balance: ${formatCurrency(balanceInfo.totalBalance)} across ${balanceInfo.accountCount} non-business accounts.`);
+  snapshotParts.push(`This month so far: ${formatCurrency(metrics.income)} in / ${formatCurrency(metrics.spending)} out (net ${formatCurrency(metrics.income - metrics.spending)}).`);
+
+  if (debtData.monthRecommended > 0) {
+    const pct = Math.round((debtData.monthActual / debtData.monthRecommended) * 100);
+    snapshotParts.push(`Debt this month: ${formatCurrency(debtData.monthActual)} paid of ${formatCurrency(debtData.monthRecommended)} recommended (${pct}%).`);
+  }
+
+  if (debtFree.atRecommended || debtFree.atMinimum) {
+    const target = debtFree.atRecommended ?? debtFree.atMinimum;
+    const months = debtFree.monthsAtRecommended ?? debtFree.monthsAtMinimum;
+    snapshotParts.push(`Projected debt-free at current pace: ${target} (${months} months).`);
+  }
+
+  if (debtDeadlines.length > 0) {
+    const deadlineLines = debtDeadlines.map((d) => {
+      const dayLabel = d.daysAway < 0
+        ? `${Math.abs(d.daysAway)}d past due`
+        : d.daysAway === 0
+          ? "today"
+          : `in ${d.daysAway}d`;
+      return `${d.creditorName}: ${formatCurrency(d.amount)} by ${d.deadline} (${dayLabel})${d.note ? ` — ${d.note}` : ""}`;
+    }).join("; ");
+    snapshotParts.push(`Active deadlines: ${deadlineLines}.`);
+  }
+
+  if (billCluster) {
+    const net = billCluster.totalOutflow - billCluster.totalInflow;
+    snapshotParts.push(`Upcoming bill cluster: ${formatCurrency(billCluster.totalOutflow)} hits ${billCluster.startDate}–${billCluster.endDate} (net −${formatCurrency(net)}, biggest: ${billCluster.biggestBillName}).`);
+  }
+
+  snapshotParts.push(`Savings target (next 30 days): ${formatCurrency(savingsTarget.target)} = ${formatCurrency(savingsTarget.forecastedIncome)} income − ${formatCurrency(savingsTarget.recurringBills)} bills − ${formatCurrency(savingsTarget.discretionaryBuffer)} discretionary.`);
+
+  const liveStateSnapshot = snapshotParts.map((p) => `- ${p}`).join("\n");
+
   return {
-    totalBalance: "--", // Will come from Teller accounts
+    totalBalance: formatCurrency(balanceInfo.totalBalance),
     monthlySpending: formatCurrency(spending),
     monthlyIncome: formatCurrency(income),
     debtSummary,
@@ -181,6 +240,7 @@ export async function buildFinancialContext(): Promise<FinancialContext> {
     movePlanSummary,
     upcomingBills,
     budgetStatus,
+    liveStateSnapshot,
   };
 }
 
@@ -241,6 +301,12 @@ Your job: tell the user exactly what needs to happen to hit their goals, with sp
 ## What you know right now
 Today is ${today}.
 
+### Live state snapshot (refreshed every chat turn)
+${context.liveStateSnapshot}
+
+### Detailed sections
+
+**Total balance:** ${context.totalBalance}
 **Monthly spending:** ${context.monthlySpending}
 **Monthly income:** ${context.monthlyIncome}
 

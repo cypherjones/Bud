@@ -2,13 +2,31 @@ import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 import { formatCurrency } from "@/lib/utils/format";
 import { calculateDebtAllocation } from "@/lib/utils/debt-engine";
-import { getMonthlyAllocationVsActual, getPayoffProjections } from "@/lib/actions/debts";
+import {
+  getMonthlyAllocationVsActual,
+  getPayoffProjections,
+  getCreditUtilizationLevers,
+  getUpcomingDebtDeadlines,
+  getDebtStrategy,
+  getAutopayStatuses,
+  getRecentLateFees,
+} from "@/lib/actions/debts";
+import { AutopayChecklist } from "@/components/debts/autopay-checklist";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { LogPaymentDialog } from "@/components/debts/log-payment-dialog";
 import { AddTaxObligationDialog } from "@/components/debts/add-tax-obligation-dialog";
+import { AddDebtDialog } from "@/components/debts/add-debt-dialog";
+import { EditDebtDialog } from "@/components/debts/edit-debt-dialog";
+import { DeleteDebtButton } from "@/components/debts/delete-debt-button";
+import { CreditScoreLevers } from "@/components/debts/credit-score-levers";
+import { DebtCascadeTimeline } from "@/components/debts/debt-cascade-timeline";
+import { DebtWhatIfCalculator } from "@/components/debts/debt-what-if";
+import { DebtDeadlineBanner } from "@/components/dashboard/debt-deadline-banner";
+import { Sparkles, BarChart3 } from "lucide-react";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -63,15 +81,33 @@ export default function DebtsPage() {
     );
   }
 
-  // Compute summary values
-  const totalDebt = allDebts.reduce((s, d) => s + d.currentBalance, 0);
+  // Compute summary values. Total Debt headline + subtitle ("across N active
+  // debts") both scope to status=active to stay self-consistent. Original +
+  // paid-off totals span all statuses so the "you've paid off $X of $Y" cards
+  // still credit fully-settled debts.
+  const totalDebt = activeDebts.reduce((s, d) => s + d.currentBalance, 0);
   const totalOriginal = allDebts.reduce((s, d) => s + d.originalBalance, 0);
   const totalPaidOff = totalOriginal - totalDebt;
   const totalMinimums = activeDebts.reduce((s, d) => s + d.minimumPayment, 0);
   const overallProgress =
     totalOriginal > 0 ? Math.round((totalPaidOff / totalOriginal) * 100) : 0;
 
-  // Smart allocation (use sum of minimums as budget baseline)
+  // Smart allocation budget: prefer this month's stored allocation total
+  // (what the user is actually paying); fall back to minimums-only if no
+  // allocation rows exist yet for the month. The old behavior of always
+  // using minimums made surplus = $0 every time.
+  const monthKey = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  })();
+  const monthAllocations = db
+    .select()
+    .from(schema.debtAllocations)
+    .where(eq(schema.debtAllocations.month, monthKey))
+    .all();
+  const allocationBudget = monthAllocations.reduce((s, a) => s + a.recommendedAmount, 0);
+  const effectiveBudget = Math.max(allocationBudget, totalMinimums);
+
   const movePlan = db
     .select()
     .from(schema.financialPlans)
@@ -82,7 +118,7 @@ export default function DebtsPage() {
     activeDebts.length > 0
       ? calculateDebtAllocation(
           activeDebts,
-          totalMinimums,
+          effectiveBudget,
           movePlan
             ? {
                 targetAmount: movePlan.targetAmount,
@@ -92,6 +128,29 @@ export default function DebtsPage() {
             : undefined
         )
       : null;
+
+  const creditLevers = getCreditUtilizationLevers();
+  const debtDeadlines = getUpcomingDebtDeadlines(30);
+  const debtStrategy = getDebtStrategy();
+
+  // Auto-pay tracker — joined with active debts. Late-fees signal helps make
+  // the case for setting it up if any debts are missing coverage.
+  const autopayStatuses = getAutopayStatuses();
+  const autopayMap = new Map(autopayStatuses.map((a) => [a.debtId, a]));
+  const autopayDebts = activeDebts.map((d) => {
+    const status = autopayMap.get(d.id);
+    return {
+      id: d.id,
+      creditorName: d.creditorName,
+      minimumPayment: d.minimumPayment,
+      dueDay: d.dueDay,
+      autopayEnabled: status?.enabled ?? false,
+      autopaySetAt: status?.setAt ?? null,
+    };
+  });
+
+  // Trailing-30 Late Fees & Interest spend — motivates the autopay checklist.
+  const recentLateFees = getRecentLateFees();
 
   // This-month recommended vs. actual paid (per debt + aggregate). Snaps the
   // allocation row into debtAllocations on first load of a new month.
@@ -111,10 +170,26 @@ export default function DebtsPage() {
             Smart allocation and payoff tracking
           </p>
         </div>
-        <AddTaxObligationDialog />
+        <div className="flex items-center gap-2">
+          <Link href="/reports" className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1.5 mr-2">
+            <BarChart3 className="w-4 h-4" />
+            Debt strategy →
+          </Link>
+          <AddDebtDialog />
+          <AddTaxObligationDialog />
+        </div>
       </header>
 
       <div className="flex-1 overflow-auto p-8 space-y-8">
+        {/* Top-of-page urgent surfaces — past-due deadlines and high-utilization
+            cards drive credit-score outcomes more than the totals below. */}
+        <div className="space-y-3">
+          <DebtDeadlineBanner deadlines={debtDeadlines} />
+          {autopayDebts.length > 0 && (
+            <AutopayChecklist debts={autopayDebts} recentLateFees={recentLateFees} />
+          )}
+        </div>
+
         {/* Summary cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card>
@@ -181,7 +256,51 @@ export default function DebtsPage() {
           </Card>
         </div>
 
+        <CreditScoreLevers data={creditLevers} />
+
+        {/* Quick wins — debts under $500 are typically clearable in 1-3 months
+            and immediately free up monthly cash + drop a credit line. */}
+        {(() => {
+          const quickWins = activeDebts
+            .filter((d) => d.currentBalance > 0 && d.currentBalance <= 50000)
+            .sort((a, b) => a.currentBalance - b.currentBalance);
+          if (quickWins.length === 0) return null;
+          const totalToClear = quickWins.reduce((s, d) => s + d.currentBalance, 0);
+          const monthlyFreed = quickWins.reduce((s, d) => s + d.minimumPayment, 0);
+          return (
+            <Card className="border-emerald-300 bg-emerald-50/40 dark:border-emerald-900 dark:bg-emerald-950/20">
+              <CardContent className="py-4 px-5 flex items-start gap-3">
+                <Sparkles className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                <div className="flex-1 text-sm space-y-1">
+                  <p>
+                    <span className="font-semibold">Quick win available: </span>
+                    <span>
+                      {quickWins.length === 1 ? (
+                        <>
+                          Clear <span className="font-medium">{quickWins[0].creditorName}</span> for{" "}
+                          <span className="font-medium">{formatCurrency(quickWins[0].currentBalance)}</span> — frees{" "}
+                          <span className="font-medium text-emerald-600">{formatCurrency(quickWins[0].minimumPayment)}/mo</span>{" "}
+                          and removes the line entirely.
+                        </>
+                      ) : (
+                        <>
+                          {quickWins.length} debts under $500. Clear all for{" "}
+                          <span className="font-medium">{formatCurrency(totalToClear)}</span> total — frees{" "}
+                          <span className="font-medium text-emerald-600">{formatCurrency(monthlyFreed)}/mo</span>{" "}
+                          to throw at bigger balances.
+                        </>
+                      )}
+                    </span>
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
+
         <DebtFreeProjection projection={payoffProjections} />
+
+        <DebtCascadeTimeline data={debtStrategy} />
 
         {/* Active debts */}
         {activeDebts.length > 0 && (
@@ -230,6 +349,8 @@ export default function DebtsPage() {
                             creditorName={debt.creditorName}
                             minimumPayment={debt.minimumPayment}
                           />
+                          <EditDebtDialog debt={debt} />
+                          <DeleteDebtButton debtId={debt.id} creditorName={debt.creditorName} />
                         </div>
                       </div>
                     </CardHeader>
@@ -303,6 +424,13 @@ export default function DebtsPage() {
                       )}
 
                       {payoff && <PayoffProjection projection={payoff} />}
+
+                      <DebtWhatIfCalculator
+                        balance={debt.currentBalance}
+                        minimumPayment={debt.minimumPayment}
+                        interestRate={debt.interestRate}
+                        currentExtra={Math.max(0, (payoff?.recommendedPayment ?? debt.minimumPayment) - debt.minimumPayment)}
+                      />
 
                       {debt.nextActionDeadline && debt.nextActionAmount !== null && (
                         <NextActionStrip
