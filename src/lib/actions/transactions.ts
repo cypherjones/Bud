@@ -1,5 +1,5 @@
 import { db, schema } from "@/lib/db";
-import { eq } from "drizzle-orm";
+import { eq, gte } from "drizzle-orm";
 import { newId } from "@/lib/utils/ids";
 import { now, today, parseDollarsToCents } from "@/lib/utils/format";
 import { mapTellerCategory } from "@/lib/sync/category-map";
@@ -90,6 +90,13 @@ export type DuplicateCandidate = {
 };
 
 export function getDuplicateCandidates(): DuplicateCandidate[] {
+  // Scope to last 90 days. Duplicates older than that are either already
+  // resolved or no longer worth surfacing — and scanning the entire history
+  // on every /transactions render grows expensive once the DB is a year old.
+  const since = new Date();
+  since.setDate(since.getDate() - 90);
+  const sinceStr = since.toISOString().split("T")[0];
+
   const rows = db
     .select({
       id: schema.transactions.id,
@@ -106,6 +113,7 @@ export function getDuplicateCandidates(): DuplicateCandidate[] {
     .from(schema.transactions)
     .leftJoin(schema.accounts, eq(schema.transactions.accountId, schema.accounts.id))
     .leftJoin(schema.categories, eq(schema.transactions.categoryId, schema.categories.id))
+    .where(gte(schema.transactions.date, sinceStr))
     .all();
 
   const groups = new Map<string, DuplicateCandidate>();

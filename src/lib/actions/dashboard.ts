@@ -1,9 +1,13 @@
+import { cache } from "react";
 import { db, schema } from "@/lib/db";
 import { eq, and, gte, lte, desc, sql, notInArray } from "drizzle-orm";
 import { getPayoffProjections } from "./debts";
+import { normalizeMerchantKey, cleanMerchantDisplay } from "@/lib/utils/merchant";
+import { inferMonthlyCost } from "@/lib/utils/cadence";
 
-/** Category IDs that represent internal moves (transfers, round-ups), not real spending */
-function getInternalCategoryIds(): string[] {
+/** Category IDs that represent internal moves (transfers, round-ups), not real spending.
+ *  Cached per render — called dozens of times across actions; once is enough. */
+const getInternalCategoryIds = cache((): string[] => {
   const internalGroup = db
     .select({ id: schema.categoryGroups.id })
     .from(schema.categoryGroups)
@@ -16,19 +20,21 @@ function getInternalCategoryIds(): string[] {
     .where(eq(schema.categories.groupId, internalGroup.id))
     .all()
     .map((c) => c.id);
-}
+});
 
-/** Account IDs flagged as excluded — their rows do not appear in dashboard or reports */
-function getExcludedAccountIds(): string[] {
+/** Account IDs flagged as excluded — their rows do not appear in dashboard or reports.
+ *  Cached per render — same hot-path reason as getInternalCategoryIds. */
+const getExcludedAccountIds = cache((): string[] => {
   return db
     .select({ id: schema.accounts.id })
     .from(schema.accounts)
     .where(eq(schema.accounts.excludeFromReports, true))
     .all()
     .map((a) => a.id);
-}
+});
 
-/** Sum of current balances on non-excluded accounts (the user's actual liquid total). */
+/** Sum of current balances on non-excluded depository accounts (the user's actual liquid total).
+ *  Credit/loan accounts carry debt, not assets — they're tracked in the debts table instead. */
 function getTotalBalance(): { totalBalance: number; accountCount: number; lastSyncedAt: string | null } {
   const accounts = db
     .select({
@@ -36,11 +42,12 @@ function getTotalBalance(): { totalBalance: number; accountCount: number; lastSy
       balance: schema.accounts.balance,
       lastSynced: schema.accounts.lastSynced,
       excludeFromReports: schema.accounts.excludeFromReports,
+      accountType: schema.accounts.accountType,
     })
     .from(schema.accounts)
     .all();
 
-  const visible = accounts.filter((a) => !a.excludeFromReports);
+  const visible = accounts.filter((a) => !a.excludeFromReports && a.accountType === "depository");
   const totalBalance = visible.reduce((s, a) => s + (a.balance ?? 0), 0);
   // Most recent lastSynced across visible accounts — useful to show "as of [time]" subtitle.
   const lastSyncedAt = visible
@@ -120,7 +127,8 @@ export function getActiveReportingMonth(): ActiveReportingMonth {
   };
 }
 
-export function getMetrics() {
+export const getMetrics = cache(_getMetrics);
+function _getMetrics() {
   const monthStart = getMonthStart();
   const internalCats = getInternalCategoryIds();
   const excludedAccounts = getExcludedAccountIds();
@@ -145,21 +153,49 @@ export function getMetrics() {
     .where(baseFilters(monthStart, undefined, "income"))
     .get();
 
-  // Previous month for comparison
+  // Previous month, restricted to the same day-of-month window as the current
+  // MTD. On May 2 we compare May 1–2 vs April 1–2, not May 1–2 vs all of April
+  // (which would always show a misleading early-month "drop").
   const d = new Date();
   const prevMonthStart = new Date(d.getFullYear(), d.getMonth() - 1, 1).toISOString().split("T")[0];
-  const prevMonthEnd = new Date(d.getFullYear(), d.getMonth(), 0).toISOString().split("T")[0];
+  const prevMonthSameDay = new Date(d.getFullYear(), d.getMonth() - 1, d.getDate()).toISOString().split("T")[0];
 
   const prevSpending = db
     .select({ total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)` })
     .from(schema.transactions)
-    .where(baseFilters(prevMonthStart, prevMonthEnd, "expense"))
+    .where(baseFilters(prevMonthStart, prevMonthSameDay, "expense"))
     .get();
 
   const prevIncome = db
     .select({ total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)` })
     .from(schema.transactions)
-    .where(baseFilters(prevMonthStart, prevMonthEnd, "income"))
+    .where(baseFilters(prevMonthStart, prevMonthSameDay, "income"))
+    .get();
+
+  // Trailing 30-day income — the headline income figure. Calendar-month MTD
+  // is misleading because paychecks land at the end of the prior month and
+  // fund the current month's spending (e.g. April 30 NAVUSOFT pays May bills).
+  // Using a 30-day rolling window keeps "income that funds this month" stable.
+  const t30Start = new Date();
+  t30Start.setDate(t30Start.getDate() - 30);
+  const t30StartStr = t30Start.toISOString().split("T")[0];
+  const todayStr = new Date().toISOString().split("T")[0];
+  const trailingIncome = db
+    .select({ total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)` })
+    .from(schema.transactions)
+    .where(baseFilters(t30StartStr, todayStr, "income"))
+    .get();
+
+  // Prior-30-day income for the trend comparison (the 30 days before the
+  // trailing window — i.e. 60→30 days ago).
+  const t60Start = new Date();
+  t60Start.setDate(t60Start.getDate() - 60);
+  const t60StartStr = t60Start.toISOString().split("T")[0];
+  const t30EndStr = new Date(t30Start.getTime() - 86400000).toISOString().split("T")[0];
+  const priorTrailingIncome = db
+    .select({ total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)` })
+    .from(schema.transactions)
+    .where(baseFilters(t60StartStr, t30EndStr, "income"))
     .get();
 
   return {
@@ -167,6 +203,8 @@ export function getMetrics() {
     income: income?.total ?? 0,
     prevSpending: prevSpending?.total ?? 0,
     prevIncome: prevIncome?.total ?? 0,
+    trailing30Income: trailingIncome?.total ?? 0,
+    priorTrailing30Income: priorTrailingIncome?.total ?? 0,
   };
 }
 
@@ -340,11 +378,306 @@ export function getTaxSummary() {
 }
 
 export function getUpcomingBills() {
+  // Return only outflow-side recurring rows. Income (paychecks) and Internal
+  // (transfers, round-ups) are recurring too but they aren't "bills" — counting
+  // them inflates the dashboard's "N recurring charges scheduled" indicator.
   return db
-    .select()
+    .select({
+      id: schema.recurringTransactions.id,
+      merchant: schema.recurringTransactions.merchant,
+      amount: schema.recurringTransactions.amount,
+      frequency: schema.recurringTransactions.frequency,
+      nextDueDate: schema.recurringTransactions.nextDueDate,
+      isActive: schema.recurringTransactions.isActive,
+    })
     .from(schema.recurringTransactions)
+    .leftJoin(schema.categories, eq(schema.recurringTransactions.categoryId, schema.categories.id))
+    .leftJoin(schema.categoryGroups, eq(schema.categories.groupId, schema.categoryGroups.id))
+    .where(and(
+      eq(schema.recurringTransactions.isActive, true),
+      sql`(${schema.categoryGroups.name} IS NULL OR ${schema.categoryGroups.name} NOT IN ('Income', 'Internal'))`,
+    ))
+    .all();
+}
+
+/**
+ * Lightweight count for the dashboard's "N recurring charges scheduled" link.
+ * Mirrors getUpcomingBills's filter (outflow-side only) but returns a single
+ * integer instead of full rows.
+ */
+export function getUpcomingBillsCount(): number {
+  const row = db
+    .select({ c: sql<number>`COUNT(*)` })
+    .from(schema.recurringTransactions)
+    .leftJoin(schema.categories, eq(schema.recurringTransactions.categoryId, schema.categories.id))
+    .leftJoin(schema.categoryGroups, eq(schema.categories.groupId, schema.categoryGroups.id))
+    .where(and(
+      eq(schema.recurringTransactions.isActive, true),
+      sql`(${schema.categoryGroups.name} IS NULL OR ${schema.categoryGroups.name} NOT IN ('Income', 'Internal'))`,
+    ))
+    .get();
+  return row?.c ?? 0;
+}
+
+export type KillListItem = {
+  merchant: string;
+  monthlyCost: number;
+  category: string | null;
+};
+
+/**
+ * Subscriptions the user has tagged #kill-list but hasn't actually cancelled
+ * (no #cancel tag). Dashboard checklist consumer. Slim version of
+ * getSubscriptionAudit's killListSubs — same cadence-aware monthlyCost math
+ * (inferMonthlyCost in @/lib/utils/cadence) but skips the full audit machinery
+ * (reimbursable / stale / cancelled partitioning).
+ */
+export function getKillList(): { items: KillListItem[]; totalMonthly: number } {
+  // Fetch every #kill-list-tagged expense row plus a per-row `isCancel` flag
+  // (true if the same transaction is also tagged #cancel). We pull all charges
+  // per merchant so the cadence inference has enough data to work with — the
+  // old version collapsed to one row per normalized merchant at SQL level,
+  // which is why max(amount) was all we had.
+  const rows = db
+    .select({
+      merchant: schema.transactions.merchant,
+      amount: schema.transactions.amount,
+      date: schema.transactions.date,
+      categoryName: schema.categories.name,
+      isCancel: sql<number>`EXISTS (
+        SELECT 1 FROM ${schema.transactionTags} tt2
+        INNER JOIN ${schema.tags} t2 ON tt2.tag_id = t2.id
+        WHERE tt2.transaction_id = ${schema.transactionTags.transactionId}
+          AND t2.name = 'cancel'
+      )`,
+    })
+    .from(schema.transactionTags)
+    .innerJoin(schema.tags, eq(schema.transactionTags.tagId, schema.tags.id))
+    .innerJoin(schema.transactions, eq(schema.transactionTags.transactionId, schema.transactions.id))
+    .leftJoin(schema.categories, eq(schema.transactions.categoryId, schema.categories.id))
+    .where(and(eq(schema.tags.name, "kill-list"), eq(schema.transactions.type, "expense")))
+    .all();
+
+  type Bucket = {
+    displayName: string;
+    charges: { date: string; amount: number }[];
+    latestCategory: string | null;
+    latestDate: string;
+    anyCancelled: boolean;
+  };
+  const bucketByMerchant = new Map<string, Bucket>();
+
+  for (const r of rows) {
+    const raw = r.merchant ?? "Unknown";
+    const key = normalizeMerchantKey(raw) || "Unknown";
+    if (key.length < 2) continue;
+    const display = cleanMerchantDisplay(raw) || raw;
+
+    const existing = bucketByMerchant.get(key);
+    if (!existing) {
+      bucketByMerchant.set(key, {
+        displayName: display,
+        charges: [{ date: r.date, amount: r.amount }],
+        latestCategory: r.categoryName,
+        latestDate: r.date,
+        anyCancelled: Boolean(r.isCancel),
+      });
+    } else {
+      existing.charges.push({ date: r.date, amount: r.amount });
+      if (display.length > 0 && display.length < existing.displayName.length) {
+        existing.displayName = display;
+      }
+      if (r.date > existing.latestDate) {
+        existing.latestDate = r.date;
+        existing.latestCategory = r.categoryName;
+      }
+      if (r.isCancel) existing.anyCancelled = true;
+    }
+  }
+
+  const items: KillListItem[] = [];
+  for (const bucket of bucketByMerchant.values()) {
+    // Same merchant-wide cancel semantics as the original: any cancelled
+    // charge → exclude the whole merchant from the kill-list view.
+    if (bucket.anyCancelled) continue;
+    const inferred = inferMonthlyCost(bucket.charges);
+    items.push({
+      merchant: bucket.displayName,
+      monthlyCost: inferred.monthlyCost,
+      category: bucket.latestCategory,
+    });
+  }
+
+  items.sort((a, b) => b.monthlyCost - a.monthlyCost);
+  const totalMonthly = items.reduce((s, i) => s + i.monthlyCost, 0);
+  return { items, totalMonthly };
+}
+
+export type UpcomingBill7d = {
+  id: string;
+  merchant: string;
+  amount: number;
+  dueDate: string;
+  daysUntil: number;
+  category: string | null;
+  groupName: string | null;
+};
+
+/**
+ * Bills expanded across the next N days (default 7). Unlike getUpcomingBills,
+ * this returns one row per scheduled occurrence — so a weekly sub appears
+ * multiple times in a 30-day window. Drives the "what's hitting this week"
+ * dashboard widget so the user can see specific dates and prep cash.
+ */
+export function getUpcomingBillsWindow(days: number = 7): UpcomingBill7d[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const horizon = new Date(today);
+  horizon.setDate(horizon.getDate() + days);
+
+  const recurring = db
+    .select({
+      id: schema.recurringTransactions.id,
+      merchant: schema.recurringTransactions.merchant,
+      amount: schema.recurringTransactions.amount,
+      frequency: schema.recurringTransactions.frequency,
+      nextDueDate: schema.recurringTransactions.nextDueDate,
+      categoryName: schema.categories.name,
+      groupName: schema.categoryGroups.name,
+    })
+    .from(schema.recurringTransactions)
+    .leftJoin(schema.categories, eq(schema.recurringTransactions.categoryId, schema.categories.id))
+    .leftJoin(schema.categoryGroups, eq(schema.categories.groupId, schema.categoryGroups.id))
     .where(eq(schema.recurringTransactions.isActive, true))
     .all();
+
+  const out: UpcomingBill7d[] = [];
+  for (const r of recurring) {
+    if (!r.nextDueDate) continue;
+    if (r.groupName === "Internal" || r.groupName === "Income") continue;
+    const occ = new Date(r.nextDueDate + "T00:00:00");
+    let iter = 0;
+    while (occ <= horizon && iter < 60) {
+      iter++;
+      if (occ >= today) {
+        const daysUntil = Math.round((occ.getTime() - today.getTime()) / 86400000);
+        out.push({
+          id: `${r.id}_${occ.toISOString().split("T")[0]}`,
+          merchant: r.merchant,
+          amount: r.amount,
+          dueDate: occ.toISOString().split("T")[0],
+          daysUntil,
+          category: r.categoryName,
+          groupName: r.groupName,
+        });
+      }
+      switch (r.frequency) {
+        case "weekly": occ.setDate(occ.getDate() + 7); break;
+        case "biweekly": occ.setDate(occ.getDate() + 14); break;
+        case "monthly": occ.setMonth(occ.getMonth() + 1); break;
+        case "yearly": occ.setFullYear(occ.getFullYear() + 1); break;
+        default: occ.setTime(horizon.getTime() + 86400000);
+      }
+    }
+  }
+
+  return out.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+}
+
+export type RecurringEvent = {
+  id: string;
+  merchant: string;
+  amount: number;
+  frequency: "weekly" | "biweekly" | "monthly" | "yearly" | string;
+  dueDate: string;
+  daysUntil: number;
+  kind: "income" | "expense";
+  categoryName: string | null;
+  categoryColor: string | null;
+};
+
+/**
+ * Expand all active recurring rows (income + expenses, excluding Internal-group
+ * transfers) into per-occurrence events across the next N days. Same frequency
+ * walk as getCashFlowForecast — handles weekly/biweekly/monthly/yearly. Used by
+ * /schedule for the calendar grid and timeline.
+ *
+ * Income vs expense classification reads from the category group, not merchant
+ * name — so a paycheck categorized as anything in the Income group is correctly
+ * classified regardless of the merchant string.
+ */
+export const getUpcomingRecurringEvents = cache(_getUpcomingRecurringEvents);
+function _getUpcomingRecurringEvents(daysAhead: number = 30): RecurringEvent[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const horizon = new Date(today);
+  horizon.setDate(horizon.getDate() + daysAhead);
+
+  const recurring = db
+    .select({
+      id: schema.recurringTransactions.id,
+      merchant: schema.recurringTransactions.merchant,
+      amount: schema.recurringTransactions.amount,
+      frequency: schema.recurringTransactions.frequency,
+      nextDueDate: schema.recurringTransactions.nextDueDate,
+      categoryName: schema.categories.name,
+      categoryColor: schema.categories.color,
+      groupName: schema.categoryGroups.name,
+    })
+    .from(schema.recurringTransactions)
+    .leftJoin(schema.categories, eq(schema.recurringTransactions.categoryId, schema.categories.id))
+    .leftJoin(schema.categoryGroups, eq(schema.categories.groupId, schema.categoryGroups.id))
+    .where(eq(schema.recurringTransactions.isActive, true))
+    .all();
+
+  const out: RecurringEvent[] = [];
+  for (const r of recurring) {
+    if (!r.nextDueDate) continue;
+    if (r.groupName === "Internal") continue; // transfers, round-ups — not real schedule events
+    const kind: RecurringEvent["kind"] = r.groupName === "Income" ? "income" : "expense";
+    const occ = new Date(r.nextDueDate + "T00:00:00");
+    let iter = 0;
+    while (occ <= horizon && iter < 200) {
+      iter++;
+      if (occ >= today) {
+        const daysUntil = Math.round((occ.getTime() - today.getTime()) / 86400000);
+        out.push({
+          id: `${r.id}_${occ.toISOString().split("T")[0]}`,
+          merchant: r.merchant,
+          amount: r.amount,
+          frequency: r.frequency,
+          dueDate: occ.toISOString().split("T")[0],
+          daysUntil,
+          kind,
+          categoryName: r.categoryName,
+          categoryColor: r.categoryColor,
+        });
+      }
+      switch (r.frequency) {
+        case "weekly": occ.setDate(occ.getDate() + 7); break;
+        case "biweekly": occ.setDate(occ.getDate() + 14); break;
+        case "monthly": occ.setMonth(occ.getMonth() + 1); break;
+        case "yearly": occ.setFullYear(occ.getFullYear() + 1); break;
+        default: occ.setTime(horizon.getTime() + 86400000); // bail
+      }
+    }
+  }
+
+  return out.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+}
+
+/**
+ * Convert a recurring amount + frequency to a monthly figure. Biweekly is
+ * 26/12 not 2x (paychecks land 26 times a year, not 24); weekly is 52/12.
+ */
+export function monthlizeRecurring(amount: number, frequency: string): number {
+  switch (frequency) {
+    case "monthly": return amount;
+    case "biweekly": return Math.round(amount * 26 / 12);
+    case "weekly": return Math.round(amount * 52 / 12);
+    case "yearly": return Math.round(amount / 12);
+    default: return amount;
+  }
 }
 
 // ============================================================
@@ -609,6 +942,9 @@ export type SavingsTarget = {
   // For the breakdown UI: what gets used to compute the buffer.
   pastSpending: number; // cents — non-Internal expenses past 30 days
   pastRecurringSpending: number; // cents — sum of one cycle of monthly recurring bills (proxy)
+  // Net amount actually moved into savings accounts over the trailing 30
+  // days — gives credit for transfers the user already made toward the target.
+  alreadySaved: number; // cents
 };
 
 /**
@@ -619,7 +955,8 @@ export type SavingsTarget = {
  * Conservative target — ignores variability and seasonal swings. Treat as
  * a planning anchor, not a guaranteed number.
  */
-export function getSavingsTarget(): SavingsTarget {
+export const getSavingsTarget = cache(_getSavingsTarget);
+function _getSavingsTarget(): SavingsTarget {
   const internalCats = new Set(getInternalCategoryIds());
   const excludedAccounts = new Set(getExcludedAccountIds());
 
@@ -713,6 +1050,37 @@ export function getSavingsTarget(): SavingsTarget {
 
   const target = Math.max(0, forecastedIncome - recurringBills - discretionaryBuffer);
 
+  // Sum of deliberate deposits to savings accounts over the past 30 days.
+  // "Deliberate" = inflows of at least $20, which excludes the constant noise
+  // of round-ups, dividends, and interest payments. Matches the user's mental
+  // model — they think "I moved $700 to savings", not a net-of-withdrawals figure.
+  const DELIBERATE_DEPOSIT_MIN_CENTS = 2000;
+  const savingsAccountIds = db
+    .select({ id: schema.accounts.id })
+    .from(schema.accounts)
+    .where(and(
+      eq(schema.accounts.subtype, "savings"),
+      eq(schema.accounts.excludeFromReports, false),
+    ))
+    .all()
+    .map((a) => a.id);
+
+  let alreadySaved = 0;
+  if (savingsAccountIds.length > 0) {
+    const depositsRow = db
+      .select({ total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)` })
+      .from(schema.transactions)
+      .where(and(
+        eq(schema.transactions.type, "income"),
+        gte(schema.transactions.date, last30StartStr),
+        lte(schema.transactions.date, todayStr),
+        gte(schema.transactions.amount, DELIBERATE_DEPOSIT_MIN_CENTS),
+        sql`${schema.transactions.accountId} IN (${sql.join(savingsAccountIds.map((id) => sql`${id}`), sql`, `)})`,
+      ))
+      .get();
+    alreadySaved = depositsRow?.total ?? 0;
+  }
+
   return {
     forecastedIncome,
     recurringBills,
@@ -721,5 +1089,6 @@ export function getSavingsTarget(): SavingsTarget {
     daysWindow: 30,
     pastSpending,
     pastRecurringSpending,
+    alreadySaved,
   };
 }
