@@ -30,6 +30,17 @@ export const tellerEnrollments = sqliteTable("teller_enrollments", {
   createdAt: text("created_at").notNull(),
 });
 
+// SimpleFIN Bridge connections (replaced Teller after its July 2026 shutdown).
+// One row per claimed setup token; a single access URL covers every bank the
+// user has connected inside the SimpleFIN Bridge UI.
+export const simplefinConnections = sqliteTable("simplefin_connections", {
+  id: text("id").primaryKey(),
+  accessUrl: text("access_url").notNull(), // encrypted — contains Basic Auth credentials
+  name: text("name").notNull().default("SimpleFIN"),
+  lastSynced: text("last_synced"),
+  createdAt: text("created_at").notNull(),
+});
+
 export const accounts = sqliteTable("accounts", {
   id: text("id").primaryKey(),
   name: text("name").notNull(), // "Chase Checking"
@@ -39,8 +50,9 @@ export const accounts = sqliteTable("accounts", {
   lastFour: text("last_four"),
   currency: text("currency").notNull().default("USD"),
   balance: integer("balance"), // cents — current balance from Teller
-  tellerAccountId: text("teller_account_id"), // external ID from Teller
+  tellerAccountId: text("teller_account_id"), // external ID from Teller (legacy — Teller shut down 2026-07)
   tellerEnrollmentId: text("teller_enrollment_id"),
+  simplefinAccountId: text("simplefin_account_id"), // external ID from SimpleFIN Bridge
   // when true, account's transactions are hidden from dashboard/reports.
   // incoming transfers FROM an excluded account still show on the receiving account.
   excludeFromReports: integer("exclude_from_reports", { mode: "boolean" }).notNull().default(false),
@@ -338,6 +350,31 @@ export const savingsGoals = sqliteTable("savings_goals", {
   currentAmount: integer("current_amount").notNull().default(0), // cents
   targetDate: text("target_date"),
   notes: text("notes"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+// ============================================================
+// HOUSEHOLD PLAN (April + AJ)
+// ============================================================
+
+/**
+ * The shared household budget — one row per planned monthly line, each
+ * carried by "his" | "hers" | "both". Planning numbers, separate from the
+ * category `budgets` table, which tracks spend against transactions.
+ * Income, tithe % and the tax/bonus/card inputs live in settings under
+ * `household_plan` (see src/lib/household/config.ts).
+ */
+export const householdLines = sqliteTable("household_lines", {
+  id: text("id").primaryKey(),
+  // Stable key for lines the calculators reference: "tithe" | "ring" | "april_card"
+  slug: text("slug"),
+  groupName: text("group_name").notNull(),
+  label: text("label").notNull(),
+  note: text("note"),
+  amount: integer("amount").notNull().default(0), // cents per month; ignored for the tithe line
+  owner: text("owner").notNull().default("both"), // "his" | "hers" | "both"
+  sortOrder: integer("sort_order").notNull().default(0),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });

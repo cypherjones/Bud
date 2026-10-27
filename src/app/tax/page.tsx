@@ -5,6 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { AddTaxObligationDialog } from "@/components/debts/add-tax-obligation-dialog";
 import { LogTaxPaymentDialog } from "@/components/taxes/log-tax-payment-dialog";
+import { TaxPlanner } from "@/components/taxes/tax-planner";
+import { FilingRules } from "@/components/taxes/filing-rules";
+import { W4Explainer, W4Caveats } from "@/components/taxes/w4-explainer";
+import { TaxFootnote } from "@/components/taxes/tax-footnote";
+import { getHouseholdConfig } from "@/lib/household/config";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +50,13 @@ function METHOD_LABELS(m: string | null): string {
 export default function TaxPage() {
   const overview = getTaxOverview();
   const hasAny = overview.active.length > 0 || overview.paid.length > 0;
+  const household = getHouseholdConfig();
+  // The pre-marriage installment balance — from the tracked IRS obligation(s)
+  // when there are any, else the figure the household plan was built on.
+  const irsActive = overview.active.filter((o) => o.agency.toUpperCase() === "IRS");
+  const irsBalance = irsActive.length
+    ? irsActive.reduce((s, o) => s + o.remainingBalance, 0) / 100
+    : household.tax.irsBalanceFallback;
 
   return (
     <div className="flex flex-col h-screen">
@@ -249,6 +261,28 @@ export default function TaxPage() {
             )}
           </>
         )}
+
+        {/* 2026 return planner — from the April + AJ household plan. Inputs are
+            shared with /plan via settings.household_plan. */}
+        <section className="space-y-4 pt-4">
+          <div className="border-b border-border pb-2">
+            <h2 className="text-lg font-semibold">The 2026 return, together or separately</h2>
+            <p className="text-sm text-muted-foreground">
+              What the IRS actually says, and what each choice costs. This is the decision with the most money and the
+              most at stake for April personally.
+            </p>
+          </div>
+          <TaxPlanner
+            initialTax={household.tax}
+            bonusGross={household.bonus.gross}
+            irsBalance={irsBalance}
+            irsBalanceSource={irsActive.length ? "tracked" : "fallback"}
+            w4Explainer={<W4Explainer />}
+            w4Caveats={<W4Caveats />}
+          />
+          <FilingRules />
+          <TaxFootnote />
+        </section>
       </div>
     </div>
   );

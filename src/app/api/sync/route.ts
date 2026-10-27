@@ -1,4 +1,4 @@
-import { syncAccounts, syncTransactions } from "@/lib/sync/teller";
+import { syncSimplefinConnection } from "@/lib/sync/simplefin";
 import { db, schema } from "@/lib/db";
 import { decrypt } from "@/lib/utils/crypto";
 import { authenticateRequest, unauthorizedResponse } from "@/lib/auth";
@@ -12,11 +12,11 @@ export async function POST(req: Request) {
   const rateLimited = checkRateLimit(req);
   if (rateLimited) return rateLimited;
 
-  const enrollments = db.select().from(schema.tellerEnrollments).all();
+  const connections = db.select().from(schema.simplefinConnections).all();
 
-  if (enrollments.length === 0) {
+  if (connections.length === 0) {
     return Response.json(
-      { error: "No bank connections configured. Connect a bank first." },
+      { error: "No bank connections configured. Connect SimpleFIN in Settings first." },
       { status: 400 }
     );
   }
@@ -27,27 +27,25 @@ export async function POST(req: Request) {
   let totalResolvedPlaceholders = 0;
   const errors: string[] = [];
 
-  for (const enrollment of enrollments) {
-    let accessToken: string;
+  for (const connection of connections) {
+    let accessUrl: string;
     try {
-      accessToken = decrypt(enrollment.accessToken);
+      accessUrl = decrypt(connection.accessUrl);
     } catch {
-      errors.push(`Failed to decrypt token for ${enrollment.institution}`);
+      errors.push(`Failed to decrypt access URL for ${connection.name}`);
       continue;
     }
 
     try {
-      const newAccounts = await syncAccounts(accessToken, enrollment.enrollmentId);
-      const { newTransactions, updatedTransactions, resolvedPlaceholders } = await syncTransactions(accessToken, enrollment.enrollmentId);
-
-      totalNewAccounts += newAccounts;
-      totalNewTransactions += newTransactions;
-      totalUpdatedTransactions += updatedTransactions;
-      totalResolvedPlaceholders += resolvedPlaceholders;
+      const result = await syncSimplefinConnection(accessUrl, connection.id);
+      totalNewAccounts += result.newAccounts;
+      totalNewTransactions += result.newTransactions;
+      totalUpdatedTransactions += result.updatedTransactions;
+      totalResolvedPlaceholders += result.resolvedPlaceholders;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      console.error(`Sync error for ${enrollment.institution}:`, error);
-      errors.push(`${enrollment.institution}: ${message}`);
+      console.error(`Sync error for ${connection.name}:`, error);
+      errors.push(`${connection.name}: ${message}`);
     }
   }
 

@@ -12,6 +12,10 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# next.config.ts inlines this into the client bundle at build time
+ARG BUD_API_KEY
+ENV BUD_API_KEY=$BUD_API_KEY
+
 # Build requires better-sqlite3 native bindings
 RUN npm run build
 
@@ -29,11 +33,6 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
-
-# Copy drizzle config + schema for migrations
-COPY --from=builder /app/drizzle.config.ts ./
-COPY --from=builder /app/drizzle ./drizzle
-COPY --from=builder /app/src/lib/db ./src/lib/db
 
 # Create data directory for SQLite
 RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data

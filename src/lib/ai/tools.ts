@@ -17,7 +17,7 @@ export const budTools: Tool[] = [
   {
     name: "add_transaction",
     description:
-      "Add a new transaction to an account. Use placeholder=true when the user is logging something they expect Teller to sync soon (paychecks, recent purchases on connected accounts) — the row will auto-resolve to the Teller-synced version on the next sync. Use placeholder=false for authoritative manual entries on accounts that don't sync via Teller. Always confirm the account by name or last-four when ambiguous.",
+      "Add a new transaction to an account. Use placeholder=true when the user is logging something they expect bank sync (SimpleFIN) to bring in soon (paychecks, recent purchases on connected accounts) — the row will auto-resolve to the bank-synced version on the next sync. Use placeholder=false for authoritative manual entries on accounts that don't have bank sync. Always confirm the account by name or last-four when ambiguous.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -48,7 +48,7 @@ export const budTools: Tool[] = [
         },
         placeholder: {
           type: "boolean",
-          description: "True if expecting Teller to bring this in soon (will auto-resolve on next sync). Default true for Teller-connected accounts when date is within 14 days.",
+          description: "True if expecting bank sync to bring this in soon (will auto-resolve on next sync). Default true for sync-connected accounts when date is within 14 days.",
         },
         placeholder_ttl_days: {
           type: "number",

@@ -43,7 +43,7 @@ program
 
 program
   .command("sync")
-  .description("Sync bank transactions via Teller")
+  .description("Sync bank transactions via SimpleFIN")
   .action(syncCommand);
 
 program

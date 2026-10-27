@@ -8,7 +8,7 @@ const securityHeaders = {
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 };
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const response = NextResponse.next();
 
   // Apply security headers to all responses

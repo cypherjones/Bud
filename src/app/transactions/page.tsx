@@ -127,6 +127,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
       institution: schema.accounts.institution,
       lastFour: schema.accounts.lastFour,
       tellerAccountId: schema.accounts.tellerAccountId,
+      simplefinAccountId: schema.accounts.simplefinAccountId,
     })
     .from(schema.accounts)
     .where(eq(schema.accounts.excludeFromReports, false))

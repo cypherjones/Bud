@@ -3,6 +3,10 @@ const maxRequests: Record<string, number> = {
   "/api/chat": 20,
   "/api/sync": 5,
   "/api/settings/teller": 10,
+  "/api/settings/simplefin": 10,
+  // Debounced saves while typing in the household plan
+  "/api/household/config": 120,
+  "/api/household/lines": 120,
 };
 const defaultMax = 30;
 

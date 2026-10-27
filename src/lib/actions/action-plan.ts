@@ -197,3 +197,173 @@ export function seedCashFlowPlanIfEmpty(): boolean {
   }
   return true;
 }
+
+const HOUSEHOLD_TASKS_FLAG = "household_plan_tasks_seeded";
+
+/**
+ * Seed the open questions and to-dos from the 25 Oct 2026 household plan
+ * ("April and AJ's Financial Plan v1"). Runs once, tracked by a settings flag
+ * rather than an empty table, because the cash-flow plan is already there.
+ */
+export function seedHouseholdPlanTasksOnce(): boolean {
+  const flag = db
+    .select({ key: schema.settings.key })
+    .from(schema.settings)
+    .where(eq(schema.settings.key, HOUSEHOLD_TASKS_FLAG))
+    .get();
+  if (flag) return false;
+
+  const items: Array<{ title: string; description: string; phase: ActionPlanPhase; estimatedSavingsCents?: number; link?: string; dueAt?: string; sortOrder: number }> = [
+    // === THIS WEEK ===
+    {
+      title: "Ask Navusoft whether they offer a dependent care FSA",
+      description: "The 2026 limit is $7,500 and Elijah's daycare is $7,488 a year. Pre-tax and pre-FICA it's worth about $2,220, against roughly $850–$1,050 from the childcare credit. Open enrollment is the window.",
+      phase: "this_week",
+      link: "/tax",
+      sortOrder: 200,
+    },
+    {
+      title: "Fix the W-4: married filing jointly, 3 children",
+      description: "Step 1(c) married filing jointly · Step 2(c) unchecked (April is self-employed) · Step 3 $6,600 for three children · Step 4(c) whatever you pick together on /tax · work state Texas. Don't under-withhold — owing at filing defaults the installment agreement.",
+      phase: "this_week",
+      link: "/tax",
+      sortOrder: 210,
+    },
+    {
+      title: "Pay the tithe by transfer or check, or get a church year-end statement",
+      description: "Cash with no bank record or church statement is never deductible. From 2026 up to $2,000 joint is deductible without itemising — about $440. Any single gift of $250+ also needs a written acknowledgment.",
+      phase: "this_week",
+      link: "/tax",
+      sortOrder: 220,
+    },
+    {
+      title: "Requote auto insurance with April as the primary insured",
+      description: "Insurance is priced partly on credit and April's score is materially higher. Free to find out; estimated at around $70 a month.",
+      phase: "this_week",
+      estimatedSavingsCents: 7000,
+      sortOrder: 230,
+    },
+    {
+      title: "End the AT&T / Verizon overlap",
+      description: "$533.49 a month on phones while both run. Dropping AT&T ($343.98) is the single biggest cut left in the household budget. Check for device promo credits before paying anything off.",
+      phase: "this_week",
+      estimatedSavingsCents: 34398,
+      link: "/plan#budget",
+      sortOrder: 240,
+    },
+    {
+      title: "Find out what Pantheon is running",
+      description: "$44.16 a month on a personal account for a closed business. Kinsta is resolved — it's Simon's and moving to him.",
+      phase: "this_week",
+      estimatedSavingsCents: 4416,
+      sortOrder: 250,
+    },
+    {
+      title: "Ask Meridian's drafter: capital interest or profits interest? Any 83(b)?",
+      description: "Attachment A calls the sweat equity an \"Initial Contribution\" against a fixed 35% — that points at a capital interest, which can mean ordinary income in 2026. Ask for the opening capital account balances, whether it was meant as a Rev. Proc. 93-27 profits interest, and whether an 83(b) was ever mailed (~March 2026).",
+      phase: "this_week",
+      link: "/plan#agreements",
+      sortOrder: 260,
+    },
+
+    // === THIS MONTH ===
+    {
+      title: "Amend Meridian's operating agreement: members shall bear tool costs",
+      description: "Makes the software deductible as UPE on Schedule E line 28 — roughly $2,500 of tax and recovered credits on the software alone. Must say members SHALL bear named categories (software, home office, phone/internet, vehicle) and the company shall NOT reimburse. Signed by both Managing Members. Hard deadline 15 Mar 2027; before year end is cleanest.",
+      phase: "this_month",
+      link: "/plan#agreements",
+      dueAt: "2026-12-31",
+      sortOrder: 300,
+    },
+    {
+      title: "Get Seth's written acknowledgment of the amendment",
+      description: "The Investors Agreement blocks changes that adversely affect his interest without written consent. This one likely helps the company, but he's the only one who put cash in. Same week as the amendment.",
+      phase: "this_month",
+      link: "/plan#agreements",
+      dueAt: "2026-12-31",
+      sortOrder: 310,
+    },
+    {
+      title: "Write up a consent ratifying the verbally approved 2026 budget",
+      description: "One page, dated today (not backdated), reciting that the 2026 operating budget including $3,750/mo per Managing Member was approved by all Members on or about [date]. Signed by you, Simon, then Seth.",
+      phase: "this_month",
+      link: "/plan#agreements",
+      sortOrder: 320,
+    },
+    {
+      title: "Get his capital account detail / outside basis from Meridian's books",
+      description: "Opening balance, contributions, guaranteed payments and allocated loss to date. Decides whether the ~$43,578 loss share is usable in 2026 or carries forward. Expected answer: near zero.",
+      phase: "this_month",
+      link: "/plan#agreements",
+      sortOrder: 330,
+    },
+    {
+      title: "Engage a preparer for Meridian's first Form 1065",
+      description: "Due 15 Mar 2027 with the first K-1s; the personal return can't be finished without the K-1. A late 1065 is penalised per partner per month. Hand them the UPE amendment before they start.",
+      phase: "this_month",
+      dueAt: "2027-03-15",
+      sortOrder: 340,
+    },
+    {
+      title: "Cover self-employment tax on the guaranteed payments",
+      description: "Nothing is withholding against it — about $5,299 as things stand, $4,112 if the agreement is amended. Extra W-4 withholding or a Q4 estimated payment (due 15 Jan 2027).",
+      phase: "this_month",
+      link: "/tax",
+      dueAt: "2027-01-15",
+      sortOrder: 350,
+    },
+    {
+      title: "Book an hour with a tax professional",
+      description: "Capital vs profits interest, partnership basis, injured spouse (Form 8379) under Texas community property, and the Georgia part-year return. Bring the agreements and the /tax numbers.",
+      phase: "this_month",
+      link: "/tax",
+      sortOrder: 360,
+    },
+    {
+      title: "Get car values against payoff quotes (Maverick, Tiguan)",
+      description: "Two calls and two valuations. Without them the car options are guesswork.",
+      phase: "this_month",
+      link: "/plan#cars",
+      sortOrder: 370,
+    },
+    {
+      title: "Confirm Seth has taken over the Tiguan, then zero its budget line",
+      description: "$447 a month and the 24% note come off the household from November.",
+      phase: "this_month",
+      estimatedSavingsCents: 44700,
+      link: "/plan#budget",
+      sortOrder: 380,
+    },
+    {
+      title: "Ask whoever formed Meridian about Texas registration",
+      description: "It's a Georgia LLC with the old Lenox Park apartment as its registered address. Operating from Texas may need a foreign LLC registration, and the registered agent address needs updating either way.",
+      phase: "this_month",
+      link: "/plan#agreements",
+      sortOrder: 390,
+    },
+
+    // === ONGOING ===
+    {
+      title: "Get Harvard Extension's 2026 Form 1098-T and total what was paid",
+      description: "Lifetime Learning Credit: 20% of up to $10,000. Count what was paid in calendar 2026, not billed. Phases out between $160k and $180k joint AGI. Enter it on /tax.",
+      phase: "ongoing",
+      link: "/tax",
+      dueAt: "2027-01-31",
+      sortOrder: 400,
+    },
+    {
+      title: "Keep one folder of Meridian receipts from January on",
+      description: "Every software charge is already on the card statements — mostly assembling what exists. Keep Navusoft expenses separate; mixing the two is the fastest way to lose the whole deduction.",
+      phase: "ongoing",
+      sortOrder: 410,
+    },
+  ];
+
+  db.transaction(() => {
+    for (const item of items) createActionPlanItem(item);
+    db.insert(schema.settings)
+      .values({ key: HOUSEHOLD_TASKS_FLAG, value: JSON.stringify(now()), updatedAt: now() })
+      .run();
+  });
+  return true;
+}

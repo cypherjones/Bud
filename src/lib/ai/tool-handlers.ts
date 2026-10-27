@@ -156,10 +156,10 @@ function handleAddTransaction(input: ToolInput): string {
     categoryId = cat.id;
   }
 
-  // Default placeholder=true when account is Teller-connected and date is within 14 days.
+  // Default placeholder=true when account is bank-sync-connected and date is within 14 days.
   const date = (input.date as string | undefined) ?? today();
   const isRecent = Math.abs((Date.now() - new Date(date).getTime()) / 86400000) <= 14;
-  const placeholderDefault = !!account.tellerAccountId && isRecent;
+  const placeholderDefault = !!(account.simplefinAccountId || account.tellerAccountId) && isRecent;
   const placeholder = (input.placeholder as boolean | undefined) ?? placeholderDefault;
 
   const result = createTransaction({
@@ -177,7 +177,7 @@ function handleAddTransaction(input: ToolInput): string {
 
   const amountFmt = formatCurrency(parseDollarsToCents(input.amount as number));
   const placeholderNote = placeholder
-    ? " (placeholder — will auto-resolve when Teller syncs the matching transaction)"
+    ? " (placeholder — will auto-resolve when bank sync brings in the matching transaction)"
     : "";
   return JSON.stringify({
     success: true,

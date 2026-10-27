@@ -25,6 +25,7 @@ type Account = {
   institution: string;
   lastFour: string | null;
   tellerAccountId: string | null;
+  simplefinAccountId: string | null;
 };
 
 type Category = {
@@ -58,7 +59,7 @@ export function AddTransactionDialog({
   const [placeholder, setPlaceholder] = useState(true);
 
   const selectedAccount = accounts.find((a) => a.id === accountId);
-  const placeholderApplicable = !!selectedAccount?.tellerAccountId;
+  const placeholderApplicable = !!(selectedAccount?.simplefinAccountId || selectedAccount?.tellerAccountId);
 
   const reset = () => {
     setAmount("");
@@ -151,7 +152,7 @@ export function AddTransactionDialog({
           <DialogTitle>Add transaction</DialogTitle>
           <DialogDescription>
             Log a transaction manually. For bank-connected accounts, leave the
-            placeholder option on so it auto-resolves when Teller catches up.
+            placeholder option on so it auto-resolves when bank sync catches up.
           </DialogDescription>
         </DialogHeader>
 
@@ -255,11 +256,11 @@ export function AddTransactionDialog({
               className="mt-0.5"
             />
             <div className="text-xs">
-              <div className="font-medium">Placeholder for upcoming Teller sync</div>
+              <div className="font-medium">Placeholder for upcoming bank sync</div>
               <div className="text-muted-foreground mt-0.5">
                 {placeholderApplicable
                   ? "Auto-replaced when the next sync brings in a matching transaction. Expires in 14 days if no match."
-                  : "This account is not connected to Teller, so placeholders don't apply."}
+                  : "This account is not connected to bank sync, so placeholders don't apply."}
               </div>
             </div>
           </label>

@@ -59,3 +59,7 @@ next-env.d.ts
 /PLAN.md
 /PLAN_2026-05_to_2027-02.md
 /STATE.md
+
+# local scratch + exported personal files — never commit
+/_to_delete/
+/Claude outputs/

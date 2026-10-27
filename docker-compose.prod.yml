@@ -1,0 +1,33 @@
+# Bud production — runs on the Wilson droplet alongside Wilson.
+# Reachable only over Tailscale: host `tailscale serve` maps https :8443 -> 127.0.0.1:3100.
+# Deploy: make deploy (see Makefile)
+
+services:
+  bud:
+    build:
+      context: .
+      args:
+        BUD_API_KEY: ${BUD_API_KEY}
+    image: bud:latest
+    container_name: bud
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3100:3000"  # Localhost only - accessed via Tailscale
+    env_file:
+      - path: .env.production
+        required: true
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - ./data:/app/data
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"

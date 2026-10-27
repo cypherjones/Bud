@@ -6,7 +6,7 @@ import {
   LayoutDashboard,
   ArrowLeftRight,
   CreditCard,
-  MapPin,
+  NotebookPen,
   Target,
   MessageCircle,
   Settings,
@@ -21,12 +21,12 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { href: "/", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/budget", icon: PiggyBank, label: "Budget" },
+  { href: "/plan", icon: NotebookPen, label: "Our Plan" },
   { href: "/transactions", icon: ArrowLeftRight, label: "Transactions" },
   { href: "/reports", icon: FileBarChart, label: "Reports" },
   { href: "/schedule", icon: CalendarDays, label: "Schedule" },
   { href: "/debts", icon: CreditCard, label: "Debts" },
   { href: "/tax", icon: Receipt, label: "Tax" },
-  { href: "/move-planner", icon: MapPin, label: "Move Planner" },
   { href: "/goals", icon: Target, label: "Savings" },
   { href: "/credit", icon: TrendingUp, label: "Credit" },
 ];
