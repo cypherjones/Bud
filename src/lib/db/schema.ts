@@ -374,6 +374,9 @@ export const householdLines = sqliteTable("household_lines", {
   note: text("note"),
   amount: integer("amount").notNull().default(0), // cents per month; ignored for the tithe line
   owner: text("owner").notNull().default("both"), // "his" | "hers" | "both"
+  // Spending category this line tracks against. Category budgets are derived
+  // from these (see src/lib/household/sync.ts), so the plan is the budget.
+  categoryId: text("category_id").references(() => categories.id),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),

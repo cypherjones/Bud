@@ -31,10 +31,10 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex">
+      <body className="h-dvh flex flex-col md:flex-row overflow-hidden">
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
           <Sidebar />
-          <main className="flex-1 overflow-auto">{children}</main>
+          <main className="flex-1 min-h-0 min-w-0 overflow-auto">{children}</main>
           <Toaster position="top-right" />
         </ThemeProvider>
       </body>

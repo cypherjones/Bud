@@ -170,7 +170,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   }
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-full">
       <header className="px-8 py-6 border-b border-border bg-card/50 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Transactions</h1>

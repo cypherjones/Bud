@@ -55,7 +55,7 @@ export default async function ReportsPage() {
     .all();
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-full">
       <header className="px-8 py-6 border-b border-border bg-card/50">
         <h1 className="text-2xl font-bold tracking-tight">Reports</h1>
         <p className="text-sm text-muted-foreground">

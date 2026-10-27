@@ -7,22 +7,17 @@ import { formatCurrency } from "@/lib/utils/format";
 import { apiFetch } from "@/lib/client/api";
 import { useRouter } from "next/navigation";
 import { ListTodo, ArrowRight, X, ChevronDown, ChevronRight } from "lucide-react";
-import type { ActionItem, BudgetSuggestion } from "@/lib/actions/budget";
+import type { ActionItem } from "@/lib/actions/budget";
 
 type Props = {
   actions: ActionItem[];
-  suggestions: BudgetSuggestion[]; // for matching apply_suggestion details (suggestedBudget value)
 };
 
-export function ActionQueue({ actions, suggestions }: Props) {
+export function ActionQueue({ actions }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
-  const [busyAll, setBusyAll] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const router = useRouter();
-
-  const suggestionByCategory = new Map(suggestions.map((s) => [s.categoryId, s]));
 
   const visible = showAll ? actions : actions.slice(0, 7);
   const hiddenCount = Math.max(0, actions.length - 7);
@@ -57,31 +52,7 @@ export function ActionQueue({ actions, suggestions }: Props) {
           router.push(action.ctaTarget);
           break;
         case "tag": {
-          if (action.kind === "apply_suggestion" && action.categoryId) {
-            const s = suggestionByCategory.get(action.categoryId);
-            if (!s) {
-              showToast("Could not find suggestion data");
-              break;
-            }
-            const res = await apiFetch("/api/budgets", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ categoryId: s.categoryId, amount: s.suggestedBudget / 100 }),
-            });
-            if (res.ok) {
-              showToast(`${s.categoryName} budget set to ${formatCurrency(s.suggestedBudget)}/mo · saving ${formatCurrency(s.monthlyDelta)}/mo`);
-              router.refresh();
-              // Scroll to + flash the row that just changed so the apply→table
-              // connection is visible at a glance.
-              window.location.hash = `budget-row-${s.categoryId}`;
-              setTimeout(() => {
-                const el = document.getElementById(`budget-row-${s.categoryId}`);
-                if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-              }, 100);
-            } else {
-              showToast(`Failed to update ${s.categoryName}`);
-            }
-          } else if (action.kind === "kill_subscription" && action.merchant) {
+          if (action.kind === "kill_subscription" && action.merchant) {
             const res1 = await apiFetch("/api/tags/toggle", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -120,35 +91,6 @@ export function ActionQueue({ actions, suggestions }: Props) {
     router.refresh();
   };
 
-  // Apply all "apply_suggestion" actions in one shot.
-  const applyAllSuggestions = async () => {
-    const targets = actions.filter((a) => a.kind === "apply_suggestion" && a.categoryId);
-    if (targets.length === 0) return;
-    setBusyAll(true);
-    setProgress({ done: 0, total: targets.length });
-    let failed = 0;
-    for (let i = 0; i < targets.length; i++) {
-      const a = targets[i];
-      const s = suggestionByCategory.get(a.categoryId!);
-      if (!s) { failed++; continue; }
-      const res = await apiFetch("/api/budgets", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ categoryId: s.categoryId, amount: s.suggestedBudget / 100 }),
-      });
-      if (!res.ok) failed++;
-      setProgress({ done: i + 1, total: targets.length });
-    }
-    const totalSaved = targets.reduce((s, a) => s + a.monthlyImpact, 0);
-    setBusyAll(false);
-    setProgress(null);
-    if (failed === 0) {
-      showToast(`Applied ${targets.length} budget${targets.length === 1 ? "" : "s"} · saving ${formatCurrency(totalSaved)}/mo`);
-    } else {
-      showToast(`Applied ${targets.length - failed} of ${targets.length} (${failed} failed)`);
-    }
-    router.refresh();
-  };
 
   if (actions.length === 0) {
     return (
@@ -162,8 +104,6 @@ export function ActionQueue({ actions, suggestions }: Props) {
       </Card>
     );
   }
-
-  const suggestionCount = actions.filter((a) => a.kind === "apply_suggestion").length;
 
   return (
     <Card id="action-queue" className="relative">
@@ -181,16 +121,6 @@ export function ActionQueue({ actions, suggestions }: Props) {
               · {actions.length} actions · ≈ {formatCurrency(totalImpact)}/mo total
             </span>
           </CardTitle>
-          {suggestionCount > 1 && (
-            <Button
-              size="sm"
-              onClick={applyAllSuggestions}
-              disabled={busyAll}
-              className="h-7 text-xs"
-            >
-              {busyAll && progress ? `Applying ${progress.done}/${progress.total}...` : `Apply all suggestions (${suggestionCount})`}
-            </Button>
-          )}
         </div>
         <p className="text-xs text-muted-foreground mt-1">
           Ranked by priority + impact. Pace warnings, blown budgets, cuts, kill-list, autopay — all here.
@@ -202,7 +132,7 @@ export function ActionQueue({ actions, suggestions }: Props) {
             key={action.id}
             action={action}
             busy={busyId === action.id}
-            disabled={busyAll}
+            disabled={busyId !== null}
             onAct={() => handleAction(action)}
             onDismiss={action.categoryId ? () => dismiss(action) : undefined}
           />

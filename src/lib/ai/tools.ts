@@ -121,7 +121,7 @@ export const budTools: Tool[] = [
   {
     name: "set_budget",
     description:
-      "Create or update a monthly budget for a spending category.",
+      "Change the household plan's monthly amount for a spending category. Category budgets are derived from the shared plan on /budget, so this edits the one plan line that tracks the category; if several lines track it, it reports them instead of guessing.",
     input_schema: {
       type: "object" as const,
       properties: {

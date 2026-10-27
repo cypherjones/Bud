@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
+import { apiFetch } from "@/lib/client/api";
 import { cn } from "@/lib/utils";
 import type { LineOwner } from "@/lib/household/calc";
 
@@ -117,5 +118,48 @@ export function useDebouncedSaver(delayMs = 600) {
       timers.current.set(key, { t, fn });
     },
     [delayMs],
+  );
+}
+
+export type SaveState = "idle" | "saving" | "error";
+
+/**
+ * Save plumbing shared by every plan editor: a debounced scheduler plus a
+ * JSON sender that tracks whether anything is still in flight or failed.
+ */
+export function usePlanSaver() {
+  const [state, setState] = useState<SaveState>("idle");
+  const inFlight = useRef(0);
+  const schedule = useDebouncedSaver();
+
+  const send = useCallback(async (url: string, method: string, body: unknown) => {
+    inFlight.current++;
+    setState("saving");
+    try {
+      const res = await apiFetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      inFlight.current--;
+      if (inFlight.current === 0) setState("idle");
+      return res;
+    } catch {
+      inFlight.current--;
+      setState("error");
+      return null;
+    }
+  }, []);
+
+  return { state, send, schedule };
+}
+
+export function SaveIndicator({ state }: { state: SaveState }) {
+  return (
+    <span className="text-xs h-4" aria-live="polite">
+      {state === "saving" && <span className="text-muted-foreground">Saving…</span>}
+      {state === "error" && <span className="text-red-400">Couldn&apos;t save — check the connection and try again</span>}
+    </span>
   );
 }

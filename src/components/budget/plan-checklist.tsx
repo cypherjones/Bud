@@ -13,6 +13,9 @@ import type { ActionPlanItem, ActionPlanStatus, ActionPlanPhase } from "@/lib/ac
 
 type Props = {
   items: ActionPlanItem[];
+  title?: string;
+  // New items added here get this link, so they show up on the same page
+  newItemLink?: string;
 };
 
 const PHASE_ORDER: ActionPlanPhase[] = ["now", "this_week", "this_month", "ongoing"];
@@ -23,7 +26,7 @@ const PHASE_LABEL: Record<ActionPlanPhase, string> = {
   ongoing: "Ongoing",
 };
 
-export function PlanChecklist({ items }: Props) {
+export function PlanChecklist({ items, title = "Action plan", newItemLink }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -71,7 +74,7 @@ export function PlanChecklist({ items }: Props) {
     await apiFetch("/api/action-plan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: newTitle.trim(), phase: newPhase, sortOrder: 999 }),
+      body: JSON.stringify({ title: newTitle.trim(), phase: newPhase, sortOrder: 999, link: newItemLink }),
     });
     setNewTitle("");
     setAdding(false);
@@ -84,7 +87,7 @@ export function PlanChecklist({ items }: Props) {
         <div className="flex items-baseline justify-between flex-wrap gap-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <ListChecks className="w-4 h-4" />
-            Action plan
+            {title}
             <span className="text-xs font-normal text-muted-foreground">
               · {completedCount}/{totalCount} done
               {totalSavings > 0 && ` · ${formatCurrency(totalSavings)}/mo on the table`}

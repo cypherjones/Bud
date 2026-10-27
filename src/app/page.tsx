@@ -88,7 +88,7 @@ export default function DashboardPage() {
   const incomeSubtitle = !hasAccounts ? "Connect accounts to start" : "Last 30 days";
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-full">
       {/* Header */}
       <header className="px-8 py-6 border-b border-border bg-card/50">
         <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>

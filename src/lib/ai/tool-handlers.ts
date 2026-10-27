@@ -8,6 +8,8 @@ import { getMonthlyAllocationVsActual, getUpcomingDebtDeadlines } from "@/lib/ac
 import { getTaxOverview } from "@/lib/actions/taxes";
 import { getTotalBalance, getDebtSummary, getUpcomingBillCluster, getSavingsTarget } from "@/lib/actions/dashboard";
 import { getSubscriptionAudit, getFrivolousSpending } from "@/lib/actions/reports";
+import { getHouseholdLines, updateHouseholdLine } from "@/lib/household/lines";
+import { syncBudgetsFromPlan } from "@/lib/household/sync";
 
 type ToolInput = Record<string, unknown>;
 
@@ -271,19 +273,28 @@ function handleGetSpendingSummary(input: ToolInput): string {
 
 function handleSetBudget(input: ToolInput): string {
   const catName = input.category as string;
-  const amount = parseDollarsToCents(input.amount as number);
+  const dollars = input.amount as number;
 
   const cat = db.select().from(schema.categories).where(like(schema.categories.name, `%${catName}%`)).get();
   if (!cat) return JSON.stringify({ error: `Category "${catName}" not found` });
 
-  const existing = db.select().from(schema.budgets).where(eq(schema.budgets.categoryId, cat.id)).get();
-  if (existing) {
-    db.update(schema.budgets).set({ amount }).where(eq(schema.budgets.id, existing.id)).run();
-    return JSON.stringify({ success: true, message: `Updated ${cat.name} budget to ${formatCurrency(amount)}/month` });
+  // Budgets are rebuilt from the household plan, so edit the plan line.
+  const lines = getHouseholdLines().filter((l) => l.categoryId === cat.id && l.slug !== "tithe");
+  if (lines.length === 0) {
+    return JSON.stringify({ error: `No line in the household plan tracks ${cat.name}. Add one on /budget.` });
   }
-
-  db.insert(schema.budgets).values({ id: newId(), categoryId: cat.id, amount, period: "monthly", createdAt: now() }).run();
-  return JSON.stringify({ success: true, message: `Set ${cat.name} budget to ${formatCurrency(amount)}/month` });
+  if (lines.length > 1) {
+    return JSON.stringify({
+      error: `${lines.length} plan lines track ${cat.name}; say which one to change.`,
+      lines: lines.map((l) => ({ label: l.label, monthly: formatCurrency(l.amount) })),
+    });
+  }
+  updateHouseholdLine(lines[0].id, { amount: dollars });
+  syncBudgetsFromPlan();
+  return JSON.stringify({
+    success: true,
+    message: `Set "${lines[0].label}" (${cat.name}) to ${formatCurrency(parseDollarsToCents(dollars))}/month in the household plan`,
+  });
 }
 
 function handleGetBudgetStatus(input: ToolInput): string {

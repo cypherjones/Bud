@@ -1,6 +1,7 @@
 import { createHouseholdLine, updateHouseholdLine, deleteHouseholdLine } from "@/lib/household/lines";
 import { authenticateRequest, unauthorizedResponse } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { syncBudgetsFromPlan } from "@/lib/household/sync";
 import { z } from "zod/v4";
 
 const owner = z.enum(["his", "hers", "both"]);
@@ -12,6 +13,7 @@ const createSchema = z.object({
   amount,
   owner,
   note: z.string().max(500).optional(),
+  categoryId: z.string().min(1).nullable().optional(),
 });
 
 const updateSchema = z.object({
@@ -20,6 +22,7 @@ const updateSchema = z.object({
   owner: owner.optional(),
   label: z.string().min(1).max(200).optional(),
   note: z.string().max(500).nullable().optional(),
+  categoryId: z.string().min(1).nullable().optional(),
 });
 
 const deleteSchema = z.object({
@@ -38,6 +41,7 @@ export async function POST(req: Request) {
   }
 
   const id = createHouseholdLine(parsed.data);
+  syncBudgetsFromPlan();
   return Response.json({ success: true, id });
 }
 
@@ -54,6 +58,7 @@ export async function PATCH(req: Request) {
 
   const { id, ...patch } = parsed.data;
   updateHouseholdLine(id, patch);
+  syncBudgetsFromPlan();
   return Response.json({ success: true });
 }
 
@@ -65,5 +70,6 @@ export async function DELETE(req: Request) {
     return Response.json({ error: "Invalid input" }, { status: 400 });
   }
   deleteHouseholdLine(parsed.data.id);
+  syncBudgetsFromPlan();
   return Response.json({ success: true });
 }

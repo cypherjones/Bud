@@ -1,6 +1,7 @@
 import { updateHouseholdConfig, householdConfigPatchSchema } from "@/lib/household/config";
 import { authenticateRequest, unauthorizedResponse } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { syncBudgetsFromPlan } from "@/lib/household/sync";
 
 export async function PATCH(req: Request) {
   if (!authenticateRequest(req)) return unauthorizedResponse();
@@ -14,5 +15,7 @@ export async function PATCH(req: Request) {
   }
 
   const config = updateHouseholdConfig(parsed.data);
+  // Income moves the tithe and savings budgets
+  if (parsed.data.income) syncBudgetsFromPlan();
   return Response.json({ success: true, config });
 }

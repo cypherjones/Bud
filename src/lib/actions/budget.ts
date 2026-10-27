@@ -1217,9 +1217,9 @@ export function getActionQueue(): ActionItem[] {
       title: `Honor ${row.categoryName} budget`,
       detail: `${formatCurrencyCompact(row.spent)} spent vs ${formatCurrencyCompact(row.budgeted)} budget · ${formatCurrencyCompact(overage)} over`,
       monthlyImpact: overage,
-      ctaLabel: "View row",
-      ctaType: "scroll",
-      ctaTarget: `budget-row-${row.categoryId}`,
+      ctaLabel: "Open budget",
+      ctaType: "link",
+      ctaTarget: "/budget",
       categoryId: row.categoryId,
       categoryColor: row.categoryColor,
       categoryGroup: row.groupName ?? undefined,
@@ -1384,11 +1384,20 @@ export function getActionQueue(): ActionItem[] {
       title: `${row.categoryName} on track to blow budget`,
       detail: `${formatCurrencyCompact(mtdCents)}/${formatCurrencyCompact(row.budgetCents)} MTD · projected ${formatCurrencyCompact(projectedMonthCents)} EOM`,
       monthlyImpact: projectedOverage,
-      ctaLabel: "View row",
-      ctaType: "scroll",
-      ctaTarget: `budget-row-${row.categoryId}`,
+      ctaLabel: "Open budget",
+      ctaType: "link",
+      ctaTarget: "/budget",
       categoryId: row.categoryId,
     });
+  }
+
+  // Category budgets are derived from the household plan now, so a suggested
+  // cut is applied by editing the plan line — not by writing `budgets`.
+  for (const a of out) {
+    if (a.kind !== "apply_suggestion") continue;
+    a.ctaLabel = "Open budget";
+    a.ctaType = "link";
+    a.ctaTarget = "/budget";
   }
 
   // Sort: priority desc, then monthlyImpact desc.

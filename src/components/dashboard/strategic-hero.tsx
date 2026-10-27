@@ -105,7 +105,7 @@ export function StrategicHero({ strategy, topActions }: Props) {
           <div className="pt-3 border-t border-border/60">
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs font-medium">Top 3 actions this week</p>
-              <Link href="/budget#action-queue" className="text-xs text-muted-foreground hover:text-foreground">
+              <Link href="/plan/open#action-queue" className="text-xs text-muted-foreground hover:text-foreground">
                 See all →
               </Link>
             </div>

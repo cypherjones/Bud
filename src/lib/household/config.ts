@@ -15,10 +15,11 @@ const num = (d: number) => z.number().catch(d);
 
 const incomeSchema = z.object({
   hisNet: num(6375), // Navusoft, 2 checks of $3,187.45
-  herNet: num(1492), // $350/wk net of booth rent, less GlossGenius
+  herNet: num(0), // Left out for now; the salon pays her own lines (see /plan/salon)
   draw: num(0), // Meridian — closed, final draw 27 Oct
   boys: num(930), // Simon and Frank
   tithePct: num(10),
+  savings: num(0), // per month, into the savings accounts
 });
 
 const futuresSchema = z.object({ aprilTakeHome: num(2520) });

@@ -14,13 +14,14 @@ export function getHouseholdLines(): HouseholdLine[] {
 
 export function updateHouseholdLine(
   id: string,
-  patch: Partial<{ amount: number; owner: LineOwner; label: string; note: string | null }>,
+  patch: Partial<{ amount: number; owner: LineOwner; label: string; note: string | null; categoryId: string | null }>,
 ) {
   const update: Record<string, unknown> = { updatedAt: now() };
   if (patch.amount !== undefined) update.amount = parseDollarsToCents(patch.amount);
   if (patch.owner !== undefined) update.owner = patch.owner;
   if (patch.label !== undefined) update.label = patch.label;
   if (patch.note !== undefined) update.note = patch.note;
+  if (patch.categoryId !== undefined) update.categoryId = patch.categoryId;
   db.update(schema.householdLines).set(update).where(eq(schema.householdLines.id, id)).run();
 }
 
@@ -30,6 +31,7 @@ export function createHouseholdLine(input: {
   amount: number; // dollars
   owner: LineOwner;
   note?: string;
+  categoryId?: string | null;
 }): string {
   const id = newId();
   const last = getHouseholdLines()
@@ -45,6 +47,7 @@ export function createHouseholdLine(input: {
       note: input.note ?? null,
       amount: parseDollarsToCents(input.amount),
       owner: input.owner,
+      categoryId: input.categoryId ?? null,
       // Unknown group → sorts to the end
       sortOrder: last > 0 ? last + 1 : 9000,
       createdAt: timestamp,

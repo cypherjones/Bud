@@ -1,81 +1,100 @@
-import { getHouseholdConfig } from "@/lib/household/config";
-import { getHouseholdLines, seedHouseholdLinesIfEmpty } from "@/lib/household/lines";
-import { getActionPlanItems, seedHouseholdPlanTasksOnce } from "@/lib/actions/action-plan";
-import { HouseholdPlan } from "@/components/plan/household-plan";
-import { BudgetNotes } from "@/components/plan/reference/budget-notes";
-import { FuturesNotes } from "@/components/plan/reference/futures-notes";
-import { BonusOptions } from "@/components/plan/reference/bonus-options";
-import { CarsSection } from "@/components/plan/reference/cars";
-import { MeridianAgreements } from "@/components/plan/reference/meridian-agreements";
-import { PlanChecklist } from "@/components/budget/plan-checklist";
+import Link from "next/link";
+import { loadPlan, getSavingsBalance } from "@/lib/household/load";
+import { getBusinessConfig } from "@/lib/business/config";
+import { getActionPlanItems } from "@/lib/actions/action-plan";
+import { budgetTotals, futures, cardPayoff, bonusAllocation } from "@/lib/household/calc";
+import { salonMonth, sideMonth } from "@/lib/business/calc";
+import { formatCurrencyCompact } from "@/lib/utils/format";
+import { PlanPage, SectionHead, TotalsStrip, Total } from "@/components/plan/plan-ui";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-const TOC = [
-  ["#income", "What comes in"],
-  ["#budget", "The budget"],
-  ["#card", "April's card"],
-  ["#futures", "Three futures"],
-  ["#bonus", "The bonus"],
-  ["#cars", "The cars"],
-  ["#agreements", "The Meridian agreements"],
-  ["#open", "Still open"],
-  ["/tax", "Filing & the W-4 →"],
-] as const;
+const usd = (dollars: number) => formatCurrencyCompact(Math.round(dollars * 100));
 
-export default function PlanPage() {
-  // Both idempotent — no-ops after the first visit.
-  seedHouseholdLinesIfEmpty();
-  seedHouseholdPlanTasksOnce();
-  const config = getHouseholdConfig();
-  const lines = getHouseholdLines();
-  const planItems = getActionPlanItems();
+export default function PlanOverviewPage() {
+  const { config, lines } = loadPlan();
+  const business = getBusinessConfig();
+  const tasks = getActionPlanItems().filter((t) => t.status !== "completed" && t.status !== "skipped");
+  const savingsBalance = getSavingsBalance();
+
+  const totals = budgetTotals(lines, config.income);
+  const cols = futures(lines, config.income, config.futures.aprilTakeHome);
+  const card = lines.find((l) => l.slug === "april_card");
+  const payoff = cardPayoff(config.card.balance, config.card.apr, card ? card.amount / 100 : 0, new Date());
+  const bonus = bonusAllocation(lines, config.income, config.futures.aprilTakeHome, config.bonus);
+  const salon = salonMonth(business.salon);
+  const side = sideMonth(business.side);
+  const openFor = (link: string) => tasks.filter((t) => t.link === link).length;
+  const nextDue = tasks.filter((t) => t.dueAt).sort((a, b) => a.dueAt!.localeCompare(b.dueAt!))[0];
+
+  const household: Tile[] = [
+    { href: "/budget", title: "The budget", stat: usd(totals.net), tone: totals.net < 0 ? "neg" : "pos",
+      line: `left over a month across ${lines.length} lines` },
+    { href: "/plan/card", title: "April's card", stat: payoff.kind === "ok" ? payoff.paidOffBy.toLocaleDateString("en-US", { month: "short", year: "numeric" }) : "—",
+      line: payoff.kind === "ok" ? `paid off, ${payoff.months} months at ${usd(card!.amount / 100)}` : "no payoff at the current payment" },
+    { href: "/plan/futures", title: "Three futures", stat: usd(cols[2].left), tone: cols[2].left < 0 ? "neg" : "pos",
+      line: `a month with April at ${usd(config.futures.aprilTakeHome)}, no Meridian` },
+    { href: "/plan/bonus", title: "The bonus", stat: bonus.months === null ? "—" : `${bonus.months.toFixed(1)} mo`,
+      line: bonus.months === null ? "no gap to cover" : "of the gap it covers" },
+    { href: "/plan/cars", title: "The cars", stat: `${openFor("/plan/cars")}`, line: openFor("/plan/cars") === 1 ? "open question before deciding" : "open questions before deciding" },
+    { href: "/plan/open", title: "Still open", stat: `${tasks.length}`,
+      line: nextDue ? `tasks · next due ${new Date(nextDue.dueAt! + "T12:00:00").toLocaleDateString("en-US", { day: "numeric", month: "short" })}` : "tasks" },
+  ];
+  const businesses: Tile[] = [
+    { href: "/plan/salon", title: "April's salon", stat: usd(salon.takeHome), tone: salon.takeHome < 0 ? "neg" : undefined,
+      line: `hers to spend a month, ${business.salon.clientsPerWeek} clients a week` },
+    { href: "/plan/side-hustles", title: "Side hustles", stat: usd(side.takeHome), tone: side.gap > 0 ? "neg" : "pos",
+      line: `a month against the ${usd(business.side.goal)} goal` },
+    { href: "/plan/meridian", title: "Meridian", stat: `${openFor("/plan/meridian")}`, line: "tasks before the 2026 return" },
+  ];
 
   return (
-    <div className="flex flex-col h-screen">
-      <header className="px-8 py-6 border-b border-border bg-card/50">
-        <h1 className="text-2xl font-bold tracking-tight">April and AJ&apos;s Plan</h1>
-        <p className="text-sm text-muted-foreground max-w-prose">
-          The household budget you build together, what it means for the months ahead, and the structure behind it.
-          Every number in a box can be changed, every line can be marked his, hers or shared, and both of you see the
-          same thing.
-        </p>
-        <nav className="flex flex-wrap gap-1.5 mt-4">
-          {TOC.map(([href, label]) => (
-            <a
-              key={href}
-              href={href}
-              className="rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:border-foreground/30"
-            >
-              {label}
-            </a>
-          ))}
-        </nav>
-      </header>
-      <div className="flex-1 overflow-auto p-4 sm:p-8 space-y-12">
-        <HouseholdPlan
-          initialLines={lines}
-          initialConfig={config}
-          budgetNotes={<BudgetNotes />}
-          futuresNotes={<FuturesNotes />}
-          bonusOptions={<BonusOptions />}
-        />
-        <div id="cars" className="scroll-mt-4">
-          <CarsSection />
-        </div>
-        <div id="agreements" className="scroll-mt-4">
-          <MeridianAgreements />
-        </div>
-        <section id="open" className="space-y-3 scroll-mt-4">
-          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-border pb-2">
-            <h2 className="text-lg font-semibold">Still open</h2>
-            <p className="text-sm text-muted-foreground flex-1 min-w-[240px]">
-              The things that would change the answers above, as tasks. Same checklist as on Budget.
-            </p>
-          </div>
-          <PlanChecklist items={planItems} />
-        </section>
-      </div>
+    <PlanPage
+      title="April and AJ's Plan"
+      sub="The household budget you build together, what it means for the months ahead, and the businesses behind it. Every page saves for both of you."
+    >
+      <TotalsStrip cols={4}>
+        <Total href="/budget" label="Money in" value={usd(totals.moneyIn)} note="AJ's pay and Simon and Frank" />
+        <Total href="/budget" label="Bills" value={usd(totals.out)} note={`AJ ${usd(totals.his)} · April ${usd(totals.hers)} · shared ${usd(totals.both)}`} />
+        <Total href="/budget" label="Into savings" value={usd(totals.savings)} note={savingsBalance === null ? "—" : `${usd(savingsBalance)} saved now`} />
+        <Total href="/budget" label="Left over" value={usd(totals.net)} tone={totals.net >= 0 ? "text-emerald-400" : "text-red-400"} note="A month, after everything" />
+      </TotalsStrip>
+
+      <section className="space-y-3">
+        <SectionHead title="The household" sub="The budget and what follows from it." />
+        <Tiles tiles={household} />
+      </section>
+
+      <section className="space-y-3">
+        <SectionHead title="The businesses" sub="April's chair, AJ's apps and consulting, and what's left of Meridian." />
+        <Tiles tiles={businesses} />
+      </section>
+
+      <p className="text-xs text-muted-foreground">
+        Filing jointly or separately, and the W-4, are on <Link href="/tax" className="underline decoration-dotted underline-offset-2">Tax</Link>.
+      </p>
+    </PlanPage>
+  );
+}
+
+type Tile = { href: string; title: string; stat: string; line: string; tone?: "neg" | "pos" };
+
+function Tiles({ tiles }: { tiles: Tile[] }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px overflow-hidden rounded-xl border border-border bg-border">
+      {tiles.map((t) => (
+        <Link key={t.href} href={t.href} className="group bg-card px-4 py-4 hover:bg-accent/40 transition-colors">
+          <p className="text-sm font-semibold flex items-center justify-between">
+            {t.title}
+            <span className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+          </p>
+          <p className={cn("mt-1 text-2xl font-semibold font-mono tabular-nums", t.tone === "neg" && "text-red-400", t.tone === "pos" && "text-emerald-400")}>
+            {t.stat}
+          </p>
+          <p className="text-xs text-muted-foreground">{t.line}</p>
+        </Link>
+      ))}
     </div>
   );
 }

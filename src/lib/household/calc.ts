@@ -15,12 +15,20 @@ export type HouseholdLine = {
   note: string | null;
   amount: number; // cents
   owner: LineOwner;
+  categoryId: string | null;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
 };
 
-export type Income = { hisNet: number; herNet: number; draw: number; boys: number; tithePct: number };
+export type Income = {
+  hisNet: number;
+  herNet: number;
+  draw: number;
+  boys: number;
+  tithePct: number;
+  savings: number; // put aside each month, before anything is left over
+};
 
 const clamp0 = (n: number) => Math.max(0, Number.isFinite(n) ? n : 0);
 
@@ -49,7 +57,8 @@ export function budgetTotals(lines: HouseholdLine[], income: Income) {
     hers: sums.hers,
     both: sums.both,
     out,
-    net: moneyIn - out,
+    savings: clamp0(income.savings),
+    net: moneyIn - out - clamp0(income.savings),
     tithe: titheOn(moneyIn, income.tithePct),
     hisShareOfHisIncome: hisIn > 0 ? sums.his / hisIn : null,
     hersShareOfHerIncome: income.herNet > 0 ? sums.hers / income.herNet : null,
