@@ -1,6 +1,6 @@
 # Bud production — runs on the Wilson droplet alongside Wilson.
 # Reachable only over Tailscale: host `tailscale serve` maps https :8443 -> 127.0.0.1:3100.
-# Deploy: make deploy (see Makefile)
+# Deploy: make deploy (see Makefile). First time: make env, make deploy, make db-push CONFIRM=yes, make serve.
 
 services:
   bud:
