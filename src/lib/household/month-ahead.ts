@@ -38,7 +38,10 @@ export type MonthAhead = {
   outScheduledCents: number; // scheduled bills, inside the month
   spreadCents: number; // plan spending with no date, inside the month
   dailySpreadCents: number;
-  leadIn: AheadDay[]; // tomorrow → the day before the month starts
+  leadIn: AheadDay[]; // today → the day before the month starts
+  daily: { date: string; balanceCents: number }[]; // every day, today → month end
+  daysInMonth: number;
+  scheduledByCategory: Record<string, number>; // cents billed per category next month
   days: AheadDay[]; // the month, days with something on them
   spread: SpreadRow[];
   planMoneyInCents: number;
@@ -59,7 +62,6 @@ const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
  */
 export function monthAhead(lines: HouseholdLine[], income: Income, now: Date = new Date()): MonthAhead {
   const today = iso(now);
-  const tomorrow = iso(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1));
   const first = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   const last = new Date(now.getFullYear(), now.getMonth() + 2, 0);
   const monthStart = iso(first);
@@ -86,7 +88,9 @@ export function monthAhead(lines: HouseholdLine[], income: Income, now: Date = n
     .where(eq(schema.recurringTransactions.isActive, true))
     .all();
 
-  // Every scheduled occurrence from tomorrow to the end of next month.
+  // Every scheduled occurrence from today to the end of next month. Something
+  // due today counts unless its charge has already posted (then today's
+  // balance already carries it).
   const events: AheadEvent[] = [];
   const scheduledByCategory = new Map<string, number>();
   for (const r of rows) {
@@ -94,7 +98,8 @@ export function monthAhead(lines: HouseholdLine[], income: Income, now: Date = n
     const cat = r.categoryId ? catById.get(r.categoryId) : undefined;
     if (cat?.group === "Internal") continue;
     const isIncome = cat?.group === "Income";
-    for (const date of occurrencesBetween(r.nextDueDate, r.frequency, tomorrow, monthEnd)) {
+    for (const date of occurrencesBetween(r.nextDueDate, r.frequency, today, monthEnd)) {
+      if (date === today && r.lastSeenDate && r.lastSeenDate >= today) continue;
       events.push({ date, label: r.merchant, cents: isIncome ? r.amount : -r.amount, category: cat?.name ?? null, seen: !!r.lastSeenDate });
       if (!isIncome && date >= monthStart && r.categoryId) {
         scheduledByCategory.set(r.categoryId, (scheduledByCategory.get(r.categoryId) ?? 0) + r.amount);
@@ -124,7 +129,7 @@ export function monthAhead(lines: HouseholdLine[], income: Income, now: Date = n
   const spreadCents = spread.reduce((s, r) => s + r.spreadCents, 0);
   const dailySpreadCents = Math.round(spreadCents / daysInMonth);
 
-  // Walk every day from tomorrow, applying events and the daily spread.
+  // Walk every day from today, applying events and the daily spread.
   const { totalBalance } = getTotalBalance();
   let balance = totalBalance;
   let cashAtMonthStart = totalBalance;
@@ -132,17 +137,20 @@ export function monthAhead(lines: HouseholdLine[], income: Income, now: Date = n
   let firstNegative: string | null = null;
   let cashEndFirstDay = totalBalance;
   const leadIn: AheadDay[] = [];
+  const daily: { date: string; balanceCents: number }[] = [];
   const days: AheadDay[] = [];
   let ei = 0;
-  for (let d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1); iso(d) <= monthEnd; d.setDate(d.getDate() + 1)) {
+  for (let d = new Date(now.getFullYear(), now.getMonth(), now.getDate()); iso(d) <= monthEnd; d.setDate(d.getDate() + 1)) {
     const date = iso(d);
     if (date === monthStart) cashAtMonthStart = balance;
     const todays: AheadEvent[] = [];
     while (ei < events.length && events[ei].date === date) todays.push(events[ei++]);
-    balance += todays.reduce((s, e) => s + e.cents, 0) - dailySpreadCents;
+    // Today's spending is already in the balance; only today's bills still apply.
+    balance += todays.reduce((s, e) => s + e.cents, 0) - (date === today ? 0 : dailySpreadCents);
     if (balance < lowest.cents) lowest = { date, cents: balance };
     if (balance < 0 && !firstNegative) firstNegative = date;
     if (date === monthStart) cashEndFirstDay = balance;
+    daily.push({ date, balanceCents: balance });
     if (todays.length > 0) (date < monthStart ? leadIn : days).push({ date, events: todays, balanceCents: balance });
   }
 
@@ -164,6 +172,9 @@ export function monthAhead(lines: HouseholdLine[], income: Income, now: Date = n
     dailySpreadCents,
     leadIn,
     days,
+    daily,
+    daysInMonth,
+    scheduledByCategory: Object.fromEntries(scheduledByCategory),
     spread,
     planMoneyInCents: Math.round((income.hisNet + income.herNet + income.draw + income.boys) * 100),
     planOutCents: plannedOut,

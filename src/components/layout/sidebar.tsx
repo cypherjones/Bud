@@ -46,6 +46,7 @@ const sections: Section[] = [
         icon: PiggyBank,
         label: "Budget",
         children: [
+          { href: "/budget/working", label: "Working budget" },
           { href: "/plan/card", label: "April's card" },
           { href: "/plan/futures", label: "Three futures" },
           { href: "/plan/bonus", label: "The bonus" },

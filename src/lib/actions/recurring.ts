@@ -45,14 +45,23 @@ export function rollRecurringForward(today: Date = new Date()): { advanced: numb
       }
     }
 
-    const latest = latestMatch(r.merchant, r.amount, r.groupName === "Income" ? "income" : "expense", r.lastSeenDate, todayStr);
+    // A one-time payment only counts a charge on or after its own date (an
+    // older payment to the same creditor is the previous month's), and once
+    // that charge posts the row has done its job and leaves the schedule.
+    const oneTime = r.frequency === "one_time";
+    const since = oneTime && r.nextDueDate ? shiftDays(r.nextDueDate, -1) : r.lastSeenDate;
+    const latest = latestMatch(r.merchant, r.amount, r.groupName === "Income" ? "income" : "expense", since, todayStr, oneTime);
     if (latest && (!r.lastSeenDate || latest > r.lastSeenDate)) {
       patch.lastSeenDate = latest;
       seen++;
     }
+    const retire = oneTime && !!latest && !!r.nextDueDate && latest >= shiftDays(r.nextDueDate, -1);
 
-    if (Object.keys(patch).length > 0) {
-      db.update(schema.recurringTransactions).set(patch).where(eq(schema.recurringTransactions.id, r.id)).run();
+    if (Object.keys(patch).length > 0 || retire) {
+      db.update(schema.recurringTransactions)
+        .set(retire ? { ...patch, isActive: false } : patch)
+        .where(eq(schema.recurringTransactions.id, r.id))
+        .run();
     }
   }
   return { advanced, seen };
@@ -88,10 +97,10 @@ function advance(from: string, frequency: string, todayStr: string): string | nu
 }
 
 /** Newest transaction in the last 60 days (or since last seen) that looks like this row. */
-function latestMatch(label: string, amount: number, type: "income" | "expense", lastSeen: string | null, todayStr: string): string | null {
+function latestMatch(label: string, amount: number, type: "income" | "expense", lastSeen: string | null, todayStr: string, strictSince = false): string | null {
   const floor = new Date(todayStr + "T00:00:00");
   floor.setDate(floor.getDate() - 60);
-  const sinceStr = lastSeen && lastSeen > toIso(floor) ? lastSeen : toIso(floor);
+  const sinceStr = strictSince && lastSeen ? lastSeen : lastSeen && lastSeen > toIso(floor) ? lastSeen : toIso(floor);
   const lo = Math.round(amount * 0.8);
   const hi = Math.round(amount * 1.25);
 
@@ -172,6 +181,12 @@ export function occurrencesBetween(nextDue: string, frequency: string, from: str
     }
   }
   return out;
+}
+
+function shiftDays(isoDate: string, n: number): string {
+  const d = new Date(isoDate + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return toIso(d);
 }
 
 function toIso(d: Date): string {

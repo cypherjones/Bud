@@ -12,11 +12,12 @@ const QUIET_DAYS = 14;
 export default function BalancesPage() {
   const all = getBalances();
   const counted = all.filter((a) => a.counted && a.syncing);
-  const stopped = all.filter((a) => a.counted && !a.syncing);
+  // A dead feed's number is history, not a balance, whether or not it counts.
+  const stopped = all.filter((a) => !a.syncing);
   const cash = counted.filter((a) => a.kind === "checking" || a.kind === "other").sort((a, b) => b.balanceCents - a.balanceCents);
   const savings = counted.filter((a) => a.kind === "savings").sort((a, b) => b.balanceCents - a.balanceCents);
   const cards = counted.filter((a) => a.kind === "card").sort((a, b) => b.balanceCents - a.balanceCents);
-  const excluded = all.filter((a) => !a.counted);
+  const excluded = all.filter((a) => !a.counted && a.syncing);
 
   const sum = (xs: AccountBalance[]) => xs.reduce((s, a) => s + a.balanceCents, 0);
   const checkingTotal = sum(cash);
@@ -62,7 +63,7 @@ export default function BalancesPage() {
 
       {stopped.length > 0 && (
         <section className="space-y-3">
-          <SectionHead title="No longer syncing" sub="These feeds stopped updating while the others kept going, so they're left out of the totals. Reconnect or remove them in Settings." />
+          <SectionHead title="No longer syncing" sub="These feeds stopped updating while the others kept going. The last number each one sent is shown only as history and is left out of every total. Reconnect or remove them in Settings." />
           <AccountTable rows={stopped} />
         </section>
       )}
@@ -106,7 +107,9 @@ function AccountTable({ rows, withLow, total }: { rows: AccountBalance[]; withLo
                     </span>
                   )}
                   {!a.syncing && a.lastSynced && (
-                    <span className="block text-[11px] text-muted-foreground">Last synced {day(a.lastSynced.slice(0, 10))}</span>
+                    <span className="block text-[11px] text-muted-foreground">
+                      Feed stopped {day(a.lastSynced.slice(0, 10))}. It showed {formatCurrency(a.balanceCents)} then.
+                    </span>
                   )}
                   {withLow && a.low30 && (
                     <span className={cn("sm:hidden block text-[11px]", a.low30.cents < 0 ? "text-red-400" : "text-muted-foreground")}>
@@ -114,8 +117,11 @@ function AccountTable({ rows, withLow, total }: { rows: AccountBalance[]; withLo
                     </span>
                   )}
                 </td>
-                <td className={cn("py-1.5 pl-3 text-right font-mono tabular-nums whitespace-nowrap", a.kind === "card" && a.balanceCents > 0 && "text-red-400")}>
-                  {formatCurrency(a.balanceCents)}
+                <td className={cn(
+                  "py-1.5 pl-3 text-right font-mono tabular-nums whitespace-nowrap",
+                  !a.syncing ? "text-muted-foreground" : (a.kind === "card" ? a.balanceCents > 0 : a.balanceCents < 0) && "text-red-400",
+                )}>
+                  {a.syncing ? formatCurrency(a.balanceCents) : "unknown"}
                 </td>
                 {withLow && (
                   <td className={cn("hidden sm:table-cell py-1.5 pl-3 text-right font-mono tabular-nums whitespace-nowrap", a.low30 && a.low30.cents < 0 ? "text-red-400" : "text-muted-foreground")}>

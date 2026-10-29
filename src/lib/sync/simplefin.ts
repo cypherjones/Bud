@@ -1,5 +1,5 @@
 import { db, schema } from "@/lib/db";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, gte, isNull } from "drizzle-orm";
 import { newId } from "@/lib/utils/ids";
 import { now } from "@/lib/utils/format";
 import { mapTellerCategory } from "./category-map";
@@ -417,6 +417,11 @@ export async function syncSimplefinConnection(
     cursor = to;
   }
 
+  const syncStartedAt = now();
+  const before = new Map(
+    db.select({ id: schema.accounts.id, balance: schema.accounts.balance }).from(schema.accounts).all().map((a) => [a.id, a.balance]),
+  );
+
   for (const w of windows) {
     const accountSet = await fetchSimplefinAccounts(accessUrl, {
       startDate: w.from,
@@ -429,10 +434,43 @@ export async function syncSimplefinConnection(
     totals.resolvedPlaceholders += r.resolvedPlaceholders;
   }
 
+  restoreOverdraftSigns(before, syncStartedAt);
+
   db.update(schema.simplefinConnections)
     .set({ lastSynced: now() })
     .where(eq(schema.simplefinConnections.id, connectionId))
     .run();
 
   return totals;
+}
+
+/**
+ * Capital One's SimpleFIN feed reports an overdrawn checking account as a
+ * positive balance (Simply Checking at −$82.05 arrives as "82.05"). The
+ * transactions can tell the two apart: the balance before this sync plus
+ * whatever this sync brought in has to land on one of ±balance. Flip only
+ * when the negative fits and the positive doesn't, so a real positive
+ * balance is never touched.
+ */
+function restoreOverdraftSigns(before: Map<string, number | null>, syncStartedAt: string): void {
+  const accounts = db
+    .select({ id: schema.accounts.id, balance: schema.accounts.balance, accountType: schema.accounts.accountType })
+    .from(schema.accounts)
+    .all();
+  for (const a of accounts) {
+    if (a.accountType === "credit" || a.balance === null || a.balance <= 0) continue;
+    const prev = before.get(a.id);
+    if (prev === null || prev === undefined) continue;
+    const fresh = db
+      .select({ amount: schema.transactions.amount, type: schema.transactions.type, status: schema.transactions.status })
+      .from(schema.transactions)
+      .where(and(eq(schema.transactions.accountId, a.id), gte(schema.transactions.createdAt, syncStartedAt)))
+      .all();
+    const net = (rows: typeof fresh) => rows.reduce((s, t) => s + (t.type === "income" ? t.amount : -t.amount), 0);
+    const expected = [prev + net(fresh), prev + net(fresh.filter((t) => t.status === "posted"))];
+    const fits = (v: number) => expected.some((e) => Math.abs(e - v) <= 1);
+    if (fits(-a.balance) && !fits(a.balance)) {
+      db.update(schema.accounts).set({ balance: -a.balance }).where(eq(schema.accounts.id, a.id)).run();
+    }
+  }
 }
