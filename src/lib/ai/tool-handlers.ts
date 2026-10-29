@@ -6,6 +6,7 @@ import { calculateDebtAllocation } from "@/lib/utils/debt-engine";
 import { createTransaction, findAccountByQuery } from "@/lib/actions/transactions";
 import { getMonthlyAllocationVsActual, getUpcomingDebtDeadlines } from "@/lib/actions/debts";
 import { getTaxOverview } from "@/lib/actions/taxes";
+import { getBalances } from "@/lib/actions/balances";
 import { getTotalBalance, getDebtSummary, getUpcomingBillCluster, getSavingsTarget } from "@/lib/actions/dashboard";
 import { getSubscriptionAudit, getFrivolousSpending } from "@/lib/actions/reports";
 import { getHouseholdLines, updateHouseholdLine } from "@/lib/household/lines";
@@ -79,7 +80,7 @@ function handleGetFinancialOverview(): string {
   const scores = db.select().from(schema.creditScores).orderBy(desc(schema.creditScores.date)).limit(3).all();
   const plans = db.select().from(schema.financialPlans).all();
   const goals = db.select().from(schema.savingsGoals).all();
-  const accounts = db.select().from(schema.accounts).all();
+  const accounts = getBalances();
 
   const monthStart = getMonthStart();
   const monthlySpending = db
@@ -94,12 +95,12 @@ function handleGetFinancialOverview(): string {
     .get();
 
   return JSON.stringify({
+    // Only accounts that count and still sync; a stopped feed's balance is history, not money.
     accounts: accounts.map((a) => ({
       name: a.name,
-      institution: a.institution,
-      type: a.subtype,
-      last_four: a.lastFour,
-      balance: a.balance != null ? formatCurrency(a.balance) : "unknown",
+      kind: a.kind,
+      balance: a.syncing ? formatCurrency(a.balanceCents) : "unknown (feed stopped)",
+      counted_in_totals: a.counted,
     })),
     this_month: {
       spending: formatCurrency(monthlySpending?.total ?? 0),
@@ -160,7 +161,7 @@ function handleAddTransaction(input: ToolInput): string {
 
   // Default placeholder=true when account is bank-sync-connected and date is within 14 days.
   const date = (input.date as string | undefined) ?? today();
-  const isRecent = Math.abs((Date.now() - new Date(date).getTime()) / 86400000) <= 14;
+  const isRecent = Math.abs((Date.now() - new Date(date + "T00:00:00").getTime()) / 86400000) <= 14;
   const placeholderDefault = !!(account.simplefinAccountId || account.tellerAccountId) && isRecent;
   const placeholder = (input.placeholder as boolean | undefined) ?? placeholderDefault;
 
@@ -436,10 +437,7 @@ function handleGetDebtAllocation(input: ToolInput): string {
     ? parseDollarsToCents(input.monthly_budget as number)
     : totalMinimums;
 
-  // Get move plan for goal-unlocking factor
-  const movePlan = db.select().from(schema.financialPlans).where(eq(schema.financialPlans.type, "move")).get();
-
-  const allocation = calculateDebtAllocation(debts, monthlyBudget, movePlan ?? undefined);
+  const allocation = calculateDebtAllocation(debts, monthlyBudget);
   return JSON.stringify(allocation);
 }
 
@@ -507,7 +505,7 @@ function handleMorningBrief(): string {
   const todayStr = today();
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().split("T")[0];
+  const yesterdayStr = yesterday.toLocaleDateString("en-CA");
 
   // Last-24h activity from transactions table.
   const recentTxns = db
@@ -595,8 +593,8 @@ function handleWeeklyReview(): string {
   const todayDate = new Date();
   const weekAgo = new Date(todayDate);
   weekAgo.setDate(weekAgo.getDate() - 7);
-  const weekAgoStr = weekAgo.toISOString().split("T")[0];
-  const todayStr = todayDate.toISOString().split("T")[0];
+  const weekAgoStr = weekAgo.toLocaleDateString("en-CA");
+  const todayStr = todayDate.toLocaleDateString("en-CA");
 
   // Past 7 days totals from transactions.
   const txnTotals = db

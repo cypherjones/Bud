@@ -1,5 +1,5 @@
 import { db, schema } from "@/lib/db";
-import { and, eq, gt, inArray, isNotNull, like, or } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, like, or } from "drizzle-orm";
 import { newId } from "@/lib/utils/ids";
 import { now } from "@/lib/utils/format";
 
@@ -49,7 +49,7 @@ export function logSeenDebtPayments(): number {
       .where(eq(schema.debtPayments.debtId, d.id))
       .all()
       .reduce((m, p) => (p.date > m ? p.date : m), "");
-    anchor.set(d.id, [last, d.updatedAt.slice(0, 10)].sort().pop()!);
+    anchor.set(d.id, [last, new Date(d.updatedAt).toLocaleDateString("en-CA")].sort().pop()!);
   }
 
   let logged = 0;
@@ -75,6 +75,18 @@ export function logSeenDebtPayments(): number {
         .filter((d) => t.date > anchor.get(d.id)!)
         .sort((a, b) => Math.abs(Math.log(t.amount / a.minimumPayment)) - Math.abs(Math.log(t.amount / b.minimumPayment)))[0];
       if (!debt || t.amount < debt.minimumPayment * 0.4 || t.amount > debt.minimumPayment * 3) continue;
+
+      // Logged by hand before the bank posted it: link that row instead of counting the payment twice.
+      const handLogged = db
+        .select()
+        .from(schema.debtPayments)
+        .where(and(eq(schema.debtPayments.debtId, debt.id), isNull(schema.debtPayments.linkedTransactionId), eq(schema.debtPayments.amount, t.amount)))
+        .all()
+        .find((p) => Math.abs(Date.parse(p.date) - Date.parse(t.date)) <= 5 * 86_400_000);
+      if (handLogged) {
+        db.update(schema.debtPayments).set({ linkedTransactionId: t.id }).where(eq(schema.debtPayments.id, handLogged.id)).run();
+        continue;
+      }
 
       const before = balance.get(debt.id)!;
       const days = Math.max(0, (Date.parse(t.date) - Date.parse(anchor.get(debt.id)!)) / 86_400_000);

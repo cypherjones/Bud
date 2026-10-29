@@ -95,7 +95,7 @@ export function getDuplicateCandidates(): DuplicateCandidate[] {
   // on every /transactions render grows expensive once the DB is a year old.
   const since = new Date();
   since.setDate(since.getDate() - 90);
-  const sinceStr = since.toISOString().split("T")[0];
+  const sinceStr = since.toLocaleDateString("en-CA");
 
   const rows = db
     .select({

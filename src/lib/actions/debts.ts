@@ -112,7 +112,7 @@ export function findMatchingTransaction(
   const minAmount = amountCents - tolerance;
   const maxAmount = amountCents + tolerance;
 
-  const targetDate = new Date(date);
+  const targetDate = new Date(date + "T00:00:00");
   const startDate = new Date(targetDate);
   startDate.setDate(startDate.getDate() - 7);
   const endDate = new Date(targetDate);
@@ -131,8 +131,8 @@ export function findMatchingTransaction(
     .from(schema.transactions)
     .where(and(
       eq(schema.transactions.type, "expense"),
-      gte(schema.transactions.date, startDate.toISOString().split("T")[0]),
-      lte(schema.transactions.date, endDate.toISOString().split("T")[0]),
+      gte(schema.transactions.date, startDate.toLocaleDateString("en-CA")),
+      lte(schema.transactions.date, endDate.toLocaleDateString("en-CA")),
     ))
     .all();
 
@@ -972,7 +972,7 @@ export const getRecentLateFees = cache((): number => {
 
   const t30 = new Date();
   t30.setDate(t30.getDate() - 30);
-  const t30Str = t30.toISOString().split("T")[0];
+  const t30Str = t30.toLocaleDateString("en-CA");
   const todayStr = new Date().toLocaleDateString("en-CA");
 
   const row = db

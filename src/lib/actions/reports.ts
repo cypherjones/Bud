@@ -92,7 +92,7 @@ function _getSpendingVelocity() {
   // doesn't have enough days yet to be statistically meaningful.
   const t30Start = new Date();
   t30Start.setDate(t30Start.getDate() - 30);
-  const t30StartStr = t30Start.toISOString().split("T")[0];
+  const t30StartStr = t30Start.toLocaleDateString("en-CA");
   const t30Spending = db
     .select({ total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)` })
     .from(schema.transactions)
@@ -134,8 +134,8 @@ function _getSpendingVelocity() {
 export const getMonthlySummary = cache(_getMonthlySummary);
 function _getMonthlySummary(monthStart?: string) {
   const start = monthStart ?? getMonthStart();
-  const d = new Date(start);
-  const end = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().split("T")[0];
+  const d = new Date(start + "T00:00:00");
+  const end = new Date(d.getFullYear(), d.getMonth() + 1, 0).toLocaleDateString("en-CA");
 
   const internalCats = getInternalCategoryIds();
   const excludedAccounts = getExcludedAccountIds();
@@ -228,7 +228,7 @@ function _getMonthlySummary(monthStart?: string) {
   const prevEndDateObj = isCurrentMonth
     ? new Date(prevMonthDate.getFullYear(), prevMonthDate.getMonth(), today.getDate())
     : new Date(prevMonthDate.getFullYear(), prevMonthDate.getMonth() + 1, 0);
-  const prevEnd = prevEndDateObj.toISOString().split("T")[0];
+  const prevEnd = prevEndDateObj.toLocaleDateString("en-CA");
 
   const prevTotals = db
     .select({
@@ -279,7 +279,7 @@ function _getSubscriptionAudit() {
   // staleness cutoff and the audit, and the kill list with it, went empty.)
   const since = new Date();
   since.setDate(since.getDate() - 120);
-  const sinceStr = since.toISOString().split("T")[0];
+  const sinceStr = since.toLocaleDateString("en-CA");
   const excludedAccounts = getExcludedAccountIds();
   const recurring = db
     .select({
@@ -589,7 +589,7 @@ function _getFrivolousSpending(startDate?: string) {
   // lets the user recategorize one-by-one rather than chasing a $2k phantom.
   const last30Date = new Date();
   last30Date.setDate(last30Date.getDate() - 30);
-  const last30Str = last30Date.toISOString().split("T")[0];
+  const last30Str = last30Date.toLocaleDateString("en-CA");
   const otherCategoryItems = db
     .select({
       id: schema.transactions.id,
@@ -660,14 +660,14 @@ function _getCategoryTrends(months: number = 3): CategoryTrendsMonth[] {
   const internalCats = getInternalCategoryIds();
   const excludedAccounts = getExcludedAccountIds();
   const today = new Date();
-  const todayStr = today.toISOString().split("T")[0];
+  const todayStr = today.toLocaleDateString("en-CA");
 
   for (let i = 0; i < months; i++) {
-    const d = new Date();
-    d.setMonth(d.getMonth() - i);
+    // First of the month, so the 29th–31st can't roll into the next month.
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
     const monthStart = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
     const lastDayOfMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-    const monthEnd = lastDayOfMonth.toISOString().split("T")[0];
+    const monthEnd = lastDayOfMonth.toLocaleDateString("en-CA");
     const monthLabel = d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
 
     const isCurrentMonth =
@@ -802,8 +802,8 @@ function getVariableExpenseRateBreakdown(): { dailyRate: number; rows: CategoryB
   const today = new Date();
   const t30Start = new Date(today);
   t30Start.setDate(t30Start.getDate() - 30);
-  const t30StartStr = t30Start.toISOString().split("T")[0];
-  const todayStr = today.toISOString().split("T")[0];
+  const t30StartStr = t30Start.toLocaleDateString("en-CA");
+  const todayStr = today.toLocaleDateString("en-CA");
 
   // Categories already covered by active recurring rows — exclude from rate
   // to avoid double-counting (recurring expansion schedules them directly).
@@ -935,7 +935,7 @@ function _getCashFlowForecast(days: number = 90) {
   for (let i = 1; i <= days; i++) {
     const d = new Date(todayDate);
     d.setDate(d.getDate() + i);
-    const dateStr = d.toISOString().split("T")[0];
+    const dateStr = d.toLocaleDateString("en-CA");
     if (!dayMap.has(dateStr)) {
       dayMap.set(dateStr, {
         date: dateStr,
@@ -957,7 +957,7 @@ function _getCashFlowForecast(days: number = 90) {
     let iter = 0;
     while (occ <= projectionEnd && iter < guardLimit) {
       iter++;
-      const dateStr = occ.toISOString().split("T")[0];
+      const dateStr = occ.toLocaleDateString("en-CA");
       // Skip occurrences in the past (those are in actuals or already happened).
       if (dateStr > today) {
         const day = dayMap.get(dateStr);
@@ -1002,8 +1002,8 @@ function _getCashFlowForecast(days: number = 90) {
   }
 
   // Headlines.
-  const monthEnd = new Date(todayDate.getFullYear(), todayDate.getMonth() + 1, 0).toISOString().split("T")[0];
-  const nextMonthEnd = new Date(todayDate.getFullYear(), todayDate.getMonth() + 2, 0).toISOString().split("T")[0];
+  const monthEnd = new Date(todayDate.getFullYear(), todayDate.getMonth() + 1, 0).toLocaleDateString("en-CA");
+  const nextMonthEnd = new Date(todayDate.getFullYear(), todayDate.getMonth() + 2, 0).toLocaleDateString("en-CA");
   const eomEntry = sortedDays.find((d) => d.date === monthEnd);
   const enmEntry = sortedDays.find((d) => d.date === nextMonthEnd);
   const endOfMonthBalance = eomEntry?.projectedBalance ?? runningBalance;

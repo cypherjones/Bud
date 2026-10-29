@@ -1,3 +1,4 @@
+import { desc } from "drizzle-orm";
 import { getClient, MODEL } from "@/lib/ai/client";
 import { buildSystemPrompt, buildFinancialContext } from "@/lib/ai/system-prompt";
 import { budTools } from "@/lib/ai/tools";
@@ -166,12 +167,14 @@ export async function GET(req: Request) {
 
   const rateLimited = checkRateLimit(req);
   if (rateLimited) return rateLimited;
+  // The newest 100, oldest first.
   const messages = db
     .select()
     .from(schema.chatMessages)
-    .orderBy(schema.chatMessages.createdAt)
+    .orderBy(desc(schema.chatMessages.createdAt))
     .limit(100)
-    .all();
+    .all()
+    .reverse();
 
   return Response.json({ messages });
 }

@@ -5,7 +5,7 @@ import { header, section, progressBar, formatCents, bold, dim, purple, amber, gr
 export function statusCommand() {
   const now = new Date();
   const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-  const today = now.toISOString().split("T")[0];
+  const today = now.toLocaleDateString("en-CA");
 
   header("Financial Snapshot", today);
 

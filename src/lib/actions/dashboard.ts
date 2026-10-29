@@ -88,7 +88,7 @@ export type ActiveReportingMonth = {
 export function getActiveReportingMonth(): ActiveReportingMonth {
   const today = new Date();
   const currentMonthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
-  const currentMonthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split("T")[0];
+  const currentMonthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0).toLocaleDateString("en-CA");
   const currentLabel = today.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   const internalCats = getInternalCategoryIds();
@@ -115,7 +115,7 @@ export function getActiveReportingMonth(): ActiveReportingMonth {
 
   const priorD = new Date(today.getFullYear(), today.getMonth() - 1, 1);
   const priorMonthStart = `${priorD.getFullYear()}-${String(priorD.getMonth() + 1).padStart(2, "0")}-01`;
-  const priorMonthEnd = new Date(priorD.getFullYear(), priorD.getMonth() + 1, 0).toISOString().split("T")[0];
+  const priorMonthEnd = new Date(priorD.getFullYear(), priorD.getMonth() + 1, 0).toLocaleDateString("en-CA");
   const priorLabel = priorD.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   const currentMonthName = today.toLocaleDateString("en-US", { month: "long" });
 
@@ -158,8 +158,8 @@ function _getMetrics() {
   // MTD. On May 2 we compare May 1–2 vs April 1–2, not May 1–2 vs all of April
   // (which would always show a misleading early-month "drop").
   const d = new Date();
-  const prevMonthStart = new Date(d.getFullYear(), d.getMonth() - 1, 1).toISOString().split("T")[0];
-  const prevMonthSameDay = new Date(d.getFullYear(), d.getMonth() - 1, d.getDate()).toISOString().split("T")[0];
+  const prevMonthStart = new Date(d.getFullYear(), d.getMonth() - 1, 1).toLocaleDateString("en-CA");
+  const prevMonthSameDay = new Date(d.getFullYear(), d.getMonth() - 1, d.getDate()).toLocaleDateString("en-CA");
 
   const prevSpending = db
     .select({ total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)` })
@@ -179,7 +179,7 @@ function _getMetrics() {
   // Using a 30-day rolling window keeps "income that funds this month" stable.
   const t30Start = new Date();
   t30Start.setDate(t30Start.getDate() - 30);
-  const t30StartStr = t30Start.toISOString().split("T")[0];
+  const t30StartStr = t30Start.toLocaleDateString("en-CA");
   const todayStr = new Date().toLocaleDateString("en-CA");
   const trailingIncome = db
     .select({ total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)` })
@@ -191,8 +191,8 @@ function _getMetrics() {
   // trailing window — i.e. 60→30 days ago).
   const t60Start = new Date();
   t60Start.setDate(t60Start.getDate() - 60);
-  const t60StartStr = t60Start.toISOString().split("T")[0];
-  const t30EndStr = new Date(t30Start.getTime() - 86400000).toISOString().split("T")[0];
+  const t60StartStr = t60Start.toLocaleDateString("en-CA");
+  const t30EndStr = new Date(t30Start.getTime() - 86400000).toLocaleDateString("en-CA");
   const priorTrailingIncome = db
     .select({ total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)` })
     .from(schema.transactions)
@@ -258,7 +258,7 @@ export function getDebtSummary() {
   const d = new Date();
   const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   const monthStart = `${month}-01`;
-  const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().split("T")[0];
+  const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0).toLocaleDateString("en-CA");
 
   const recommendedRow = db
     .select({ total: sql<number>`COALESCE(SUM(${schema.debtAllocations.recommendedAmount}), 0)` })
@@ -626,10 +626,10 @@ export function getUpcomingBillsWindow(days: number = 7): UpcomingBill7d[] {
       if (occ >= today) {
         const daysUntil = Math.round((occ.getTime() - today.getTime()) / 86400000);
         out.push({
-          id: `${r.id}_${occ.toISOString().split("T")[0]}`,
+          id: `${r.id}_${occ.toLocaleDateString("en-CA")}`,
           merchant: r.merchant,
           amount: r.amount,
-          dueDate: occ.toISOString().split("T")[0],
+          dueDate: occ.toLocaleDateString("en-CA"),
           daysUntil,
           category: r.categoryName,
           groupName: r.groupName,
@@ -706,11 +706,11 @@ function _getUpcomingRecurringEvents(daysAhead: number = 30): RecurringEvent[] {
       if (occ >= today) {
         const daysUntil = Math.round((occ.getTime() - today.getTime()) / 86400000);
         out.push({
-          id: `${r.id}_${occ.toISOString().split("T")[0]}`,
+          id: `${r.id}_${occ.toLocaleDateString("en-CA")}`,
           merchant: r.merchant,
           amount: r.amount,
           frequency: r.frequency,
-          dueDate: occ.toISOString().split("T")[0],
+          dueDate: occ.toLocaleDateString("en-CA"),
           daysUntil,
           kind,
           categoryName: r.categoryName,
@@ -806,7 +806,7 @@ export function getUpcomingBillCluster(daysAhead: number = 30, windowSize: numbe
     while (occ <= horizon && iter < 60) {
       iter++;
       if (occ >= today) {
-        const key = occ.toISOString().split("T")[0];
+        const key = occ.toLocaleDateString("en-CA");
         const b = ensureBucket(key);
         if (isIncome) b.inflow += r.amount;
         else {
@@ -847,7 +847,7 @@ export function getUpcomingBillCluster(daysAhead: number = 30, windowSize: numbe
     for (let i = 0; i < windowSize; i++) {
       const d = new Date(today);
       d.setDate(d.getDate() + dayOffset + i);
-      const key = d.toISOString().split("T")[0];
+      const key = d.toLocaleDateString("en-CA");
       const b = buckets.get(key);
       if (!b) continue;
       outflow += b.outflow;
@@ -873,8 +873,8 @@ export function getUpcomingBillCluster(daysAhead: number = 30, windowSize: numbe
     end.setDate(end.getDate() + dayOffset + windowSize - 1);
 
     worst = {
-      startDate: start.toISOString().split("T")[0],
-      endDate: end.toISOString().split("T")[0],
+      startDate: start.toLocaleDateString("en-CA"),
+      endDate: end.toLocaleDateString("en-CA"),
       totalOutflow: outflow,
       totalInflow: inflow,
       billCount,
@@ -1090,8 +1090,8 @@ function _getSavingsTarget(): SavingsTarget {
   //    actual past-30-day expenses, minus what's already in `recurringBills`.
   const last30Start = new Date(today);
   last30Start.setDate(last30Start.getDate() - 30);
-  const last30StartStr = last30Start.toISOString().split("T")[0];
-  const todayStr = today.toISOString().split("T")[0];
+  const last30StartStr = last30Start.toLocaleDateString("en-CA");
+  const todayStr = today.toLocaleDateString("en-CA");
 
   // Exclude the "Other" auto-categorization gap bucket the same way the
   // discretionary report and cash-flow variable rate do — counting it as

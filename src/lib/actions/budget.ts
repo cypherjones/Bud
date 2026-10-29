@@ -123,7 +123,7 @@ export function getHiddenCategories(): string[] {
 function getMonthEnd(monthStart: string): string {
   const [y, m] = monthStart.split("-").map(Number);
   const last = new Date(y, m, 0);
-  return last.toISOString().split("T")[0];
+  return last.toLocaleDateString("en-CA");
 }
 
 export type BudgetRow = {
@@ -422,8 +422,8 @@ function _getBudgetStrategy(): BudgetStrategy {
   const today = new Date();
   const t30 = new Date(today);
   t30.setDate(t30.getDate() - 30);
-  const t30Str = t30.toISOString().split("T")[0];
-  const todayStr = today.toISOString().split("T")[0];
+  const t30Str = t30.toLocaleDateString("en-CA");
+  const todayStr = today.toLocaleDateString("en-CA");
   const excludedAccounts = getExcludedAccountIds();
   const internalCatsArr = [...internalCats];
 
@@ -902,8 +902,8 @@ function computeSuggestions(): BudgetSuggestion[] {
   const today = new Date();
   const t30 = new Date(today);
   t30.setDate(t30.getDate() - 30);
-  const t30Str = t30.toISOString().split("T")[0];
-  const todayStr = today.toISOString().split("T")[0];
+  const t30Str = t30.toLocaleDateString("en-CA");
+  const todayStr = today.toLocaleDateString("en-CA");
 
   const spendRows = db
     .select({
@@ -1095,8 +1095,8 @@ export function getCategoryDailyPace(categoryName: string): CategoryDailyPace | 
   const today = new Date();
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
-  const todayStr = today.toISOString().split("T")[0];
-  const yesterdayStr = yesterday.toISOString().split("T")[0];
+  const todayStr = today.toLocaleDateString("en-CA");
+  const yesterdayStr = yesterday.toLocaleDateString("en-CA");
   const monthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
   const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
   const daysElapsed = today.getDate();
@@ -1290,7 +1290,7 @@ export function getActionQueue(): ActionItem[] {
       .where(and(
         eq(schema.transactions.type, "expense"),
         eq(schema.transactions.categoryId, lateFeesCat.id),
-        gte(schema.transactions.date, t30Date.toISOString().split("T")[0]),
+        gte(schema.transactions.date, t30Date.toLocaleDateString("en-CA")),
       ))
       .get();
     lateFeeMonthly = row?.total ?? 0;
@@ -1330,7 +1330,7 @@ export function getActionQueue(): ActionItem[] {
   const paceCategoryNames = ["Restaurants", "Coffee & Cafes", "Fast Food", "Shopping"];
   const paceTodayDate = new Date();
   const paceMonthStart = `${paceTodayDate.getFullYear()}-${String(paceTodayDate.getMonth() + 1).padStart(2, "0")}-01`;
-  const paceTodayStr = paceTodayDate.toISOString().split("T")[0];
+  const paceTodayStr = paceTodayDate.toLocaleDateString("en-CA");
   const paceDaysInMonth = new Date(paceTodayDate.getFullYear(), paceTodayDate.getMonth() + 1, 0).getDate();
   const paceDaysElapsed = paceTodayDate.getDate();
   const paceExcludedAccounts = getExcludedAccountIds();
@@ -1439,8 +1439,8 @@ export function getUnbudgetedSpendingRows(): UnbudgetedRow[] {
   const today = new Date();
   const t30 = new Date(today);
   t30.setDate(t30.getDate() - 30);
-  const t30Str = t30.toISOString().split("T")[0];
-  const todayStr = today.toISOString().split("T")[0];
+  const t30Str = t30.toLocaleDateString("en-CA");
+  const todayStr = today.toLocaleDateString("en-CA");
   const monthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-01`;
 
   // All trailing-30 spend grouped by category
@@ -1585,8 +1585,8 @@ export function getStaleBudgets(): StaleBudget[] {
   const today = new Date();
   const t30 = new Date(today);
   t30.setDate(t30.getDate() - 30);
-  const t30Str = t30.toISOString().split("T")[0];
-  const todayStr = today.toISOString().split("T")[0];
+  const t30Str = t30.toLocaleDateString("en-CA");
+  const todayStr = today.toLocaleDateString("en-CA");
 
   const internalCats = getInternalCategoryIds();
   const excludedAccounts = getExcludedAccountIds();

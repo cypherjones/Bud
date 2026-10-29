@@ -28,18 +28,18 @@ function getDateRange(range: string | undefined): string | null {
   switch (range) {
     case "last-month": {
       const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      return d.toISOString().split("T")[0];
+      return d.toLocaleDateString("en-CA");
     }
     case "3-months": {
       const d = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-      return d.toISOString().split("T")[0];
+      return d.toLocaleDateString("en-CA");
     }
     case "all":
       return null;
     case "this-month":
     default: {
       const d = new Date(now.getFullYear(), now.getMonth(), 1);
-      return d.toISOString().split("T")[0];
+      return d.toLocaleDateString("en-CA");
     }
   }
 }

@@ -7,9 +7,12 @@ import {
   getDebtSummary,
   getDebtFreeProjection,
   getUpcomingBillCluster,
-  getSavingsTarget,
 } from "@/lib/actions/dashboard";
 import { getUpcomingDebtDeadlines } from "@/lib/actions/debts";
+import { loadPlan } from "@/lib/household/load";
+import { budgetTotals, lineAmount } from "@/lib/household/calc";
+import { getBalances } from "@/lib/actions/balances";
+import { getSubscriptionToDo } from "@/lib/subscriptions/view";
 
 export type FinancialContext = {
   totalBalance: string;
@@ -18,7 +21,9 @@ export type FinancialContext = {
   debtSummary: string;
   taxSummary: string;
   creditSummary: string;
-  movePlanSummary: string;
+  planSummary: string;
+  accountsSummary: string;
+  subscriptionsSummary: string;
   upcomingBills: string;
   budgetStatus: string;
   // M4.1 — live state snapshots so the AI doesn't have to call a dozen tools
@@ -29,7 +34,6 @@ export type FinancialContext = {
 export async function buildFinancialContext(): Promise<FinancialContext> {
   const now = new Date();
   const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-  const today = now.toISOString().split("T")[0];
 
   // Monthly transactions
   const monthlyTransactions = db
@@ -71,7 +75,11 @@ export async function buildFinancialContext(): Promise<FinancialContext> {
     .where(eq(schema.taxObligations.status, "active"))
     .all();
 
-  let taxSummary = "No tax obligations tracked.";
+  const { config, lines } = loadPlan();
+  const irsLine = lines.find((l) => /irs/i.test(l.label));
+  let taxSummary = irsLine
+    ? `IRS installment agreement: about ${formatCurrency(config.tax.irsBalanceFallback * 100)} owed (pre-marriage balance), paying ${formatCurrency(irsLine.amount)}/mo per the plan. No other obligations tracked; 2026 return is a GA part-year + TX year, and Meridian's closing still has tax tasks.`
+    : "No tax obligations tracked.";
   if (activeTaxes.length > 0) {
     const totalTaxOwed = activeTaxes.reduce((sum, t) => sum + t.remainingBalance, 0);
     const taxLines = activeTaxes.map(
@@ -105,50 +113,53 @@ export async function buildFinancialContext(): Promise<FinancialContext> {
       s.score >= 740 ? "Very Good" :
       s.score >= 670 ? "Good" :
       s.score >= 580 ? "Fair" : "Poor";
-    creditSummary = `Current score: ${s.score} (${tier})${s.source ? ` via ${s.source}` : ""}, as of ${s.date}.`;
+    const monthsOld = Math.floor((now.getTime() - new Date(s.date + "T00:00:00").getTime()) / (30.4 * 86400000));
+    creditSummary = `Last logged score: ${s.score} (${tier})${s.source ? ` via ${s.source}` : ""}, as of ${s.date}${monthsOld >= 2 ? ` — ${monthsOld} months old; ask for a current one before reasoning about the score` : ""}. The /credit page compares the April report with live balances.`;
     if (previousScore.length > 0) {
       const diff = s.score - previousScore[0].score;
       creditSummary += ` Change: ${diff >= 0 ? "+" : ""}${diff} points.`;
     }
   }
 
-  // Houston move plan
-  const movePlan = db
-    .select()
-    .from(schema.financialPlans)
-    .where(eq(schema.financialPlans.type, "move"))
-    .limit(1)
-    .all();
+  // The household plan is the budget.
+  const totals = budgetTotals(lines, config.income);
+  const usd = (d: number) => formatCurrency(Math.round(d * 100));
+  const groups = new Map<string, number>();
+  for (const l of lines) groups.set(l.groupName ?? "Other", (groups.get(l.groupName ?? "Other") ?? 0) + lineAmount(l, config.income));
+  const planSummary = [
+    `Money in per month: ${usd(totals.moneyIn)} (AJ take-home ${usd(config.income.hisNet)}, April ${usd(config.income.herNet)} — left out of the budget for now, Simon and Frank's rent share ${usd(config.income.boys)}, Meridian draw ${usd(config.income.draw)}).`,
+    `Planned spending: ${usd(totals.out)} including a ${config.income.tithePct}% tithe of ${usd(totals.tithe)}; savings set aside ${usd(totals.savings)}.`,
+    `Monthly gap: ${totals.net >= 0 ? "+" : "−"}${usd(Math.abs(totals.net))}.`,
+    `By group: ${[...groups].sort((a, b) => b[1] - a[1]).map(([g, v]) => `${g} ${usd(v)}`).join(", ")}.`,
+  ].join("\n");
 
-  let movePlanSummary = "No move plan created yet.";
-  if (movePlan.length > 0) {
-    const plan = movePlan[0];
-    const lineItems = db
-      .select()
-      .from(schema.planLineItems)
-      .where(eq(schema.planLineItems.planId, plan.id))
-      .all();
-    const totalEstimated = lineItems.reduce((s, i) => s + (i.estimatedAmount ?? 0), 0);
-    const paidItems = lineItems.filter((i) => i.isPaid).length;
-    const daysUntil = plan.targetDate
-      ? Math.ceil((new Date(plan.targetDate).getTime() - now.getTime()) / 86400000)
-      : null;
-    movePlanSummary = `"${plan.name}" — ${plan.status}. Target: ${plan.targetDate ?? "not set"}${daysUntil !== null ? ` (${daysUntil} days away)` : ""}. Saved: ${formatCurrency(plan.currentSaved)} of ${formatCurrency(plan.targetAmount ?? totalEstimated)} target. ${lineItems.length} line items (${paidItems} paid).`;
-  }
+  const balances = getBalances(now);
+  const accountsSummary = balances
+    .filter((a) => a.counted && a.syncing)
+    .map((a) => `  - ${a.name} (${a.kind}): ${formatCurrency(a.balanceCents)}${a.kind === "card" ? " owed" : ""}`)
+    .concat(balances.filter((a) => !a.syncing).map((a) => `  - ${a.name}: feed stopped, balance unknown`))
+    .join("\n");
+
+  const toDo = getSubscriptionToDo();
+  const subscriptionsSummary = toDo.length
+    ? toDo.map((t) => `  - ${t.action === "transfer" ? `Hand off to ${t.transferTo ?? "someone"}` : "Cancel"}: ${t.name} ${formatCurrency(t.monthlyCost)}/mo`).join("\n")
+    : "Nothing waiting to cancel or hand off.";
 
   // Upcoming recurring bills
   const recurring = db
     .select()
     .from(schema.recurringTransactions)
     .where(eq(schema.recurringTransactions.isActive, true))
-    .all();
+    .all()
+    .filter((r) => r.nextDueDate && r.nextDueDate <= new Date(now.getTime() + 35 * 86400000).toLocaleDateString("en-CA"))
+    .sort((a, b) => (a.nextDueDate ?? "").localeCompare(b.nextDueDate ?? ""));
 
   let upcomingBills = "No recurring bills detected.";
   if (recurring.length > 0) {
     const billLines = recurring.map(
       (r) => `  - ${r.merchant}: ${formatCurrency(r.amount)} ${r.frequency}${r.nextDueDate ? `, next due ${r.nextDueDate}` : ""}`
     );
-    upcomingBills = `${recurring.length} recurring bills:\n${billLines.join("\n")}`;
+    upcomingBills = `${recurring.length} scheduled in the next 35 days:\n${billLines.join("\n")}`;
   }
 
   // Budget status
@@ -191,11 +202,10 @@ export async function buildFinancialContext(): Promise<FinancialContext> {
   const debtData = getDebtSummary();
   const debtFree = getDebtFreeProjection();
   const billCluster = getUpcomingBillCluster();
-  const savingsTarget = getSavingsTarget();
   const debtDeadlines = getUpcomingDebtDeadlines();
 
   const snapshotParts: string[] = [];
-  snapshotParts.push(`Total liquid balance: ${formatCurrency(balanceInfo.totalBalance)} across ${balanceInfo.accountCount} non-business accounts.`);
+  snapshotParts.push(`Total liquid balance: ${formatCurrency(balanceInfo.totalBalance)} across ${balanceInfo.accountCount} counted cash accounts.`);
   snapshotParts.push(`This month so far: ${formatCurrency(metrics.income)} in / ${formatCurrency(metrics.spending)} out (net ${formatCurrency(metrics.income - metrics.spending)}).`);
 
   if (debtData.monthRecommended > 0) {
@@ -226,7 +236,6 @@ export async function buildFinancialContext(): Promise<FinancialContext> {
     snapshotParts.push(`Upcoming bill cluster: ${formatCurrency(billCluster.totalOutflow)} hits ${billCluster.startDate}–${billCluster.endDate} (net −${formatCurrency(net)}, biggest: ${billCluster.biggestBillName}).`);
   }
 
-  snapshotParts.push(`Savings target (next 30 days): ${formatCurrency(savingsTarget.target)} = ${formatCurrency(savingsTarget.forecastedIncome)} income − ${formatCurrency(savingsTarget.recurringBills)} bills − ${formatCurrency(savingsTarget.discretionaryBuffer)} discretionary.`);
 
   const liveStateSnapshot = snapshotParts.map((p) => `- ${p}`).join("\n");
 
@@ -237,7 +246,9 @@ export async function buildFinancialContext(): Promise<FinancialContext> {
     debtSummary,
     taxSummary,
     creditSummary,
-    movePlanSummary,
+    planSummary,
+    accountsSummary,
+    subscriptionsSummary,
     upcomingBills,
     budgetStatus,
     liveStateSnapshot,
@@ -265,38 +276,27 @@ Your job: tell the user exactly what needs to happen to hit their goals, with sp
 - End substantive responses with a concrete next step or question
 - Don't celebrate unless something actually moved the needle significantly
 
-## User Profile
-- Ashaun Jones, Operations at Navusoft Inc ($115k W-2) + owner's draw from Meridian Analytics ($45k/yr, switching to draw starting May 2026)
-- Girlfriend: April (turning 23). She is taking the VW and its Geico insurance ($167/mo) but Ashaun still pays the VW car loan ($447/mo)
-- Moving from Atlanta, GA → Houston, TX (already splitting time 50/50)
-- Banks: Capital One (Simply Checking 2770, 360 Checking 1387, 360 Savings 9902), Chime (checking 4414), Navy Federal
-- Pay schedule: semi-monthly (1st and 15th), net ~$3,143/paycheck + $3,750/mo Meridian draw
-- Monthly income: ~$10,036 | Monthly spending: ~$9,305 | Gap: ~$731 (before cuts)
-- Has two car loans through Bridgecrest: Primary ($801/mo) + VW ($447/mo) = $1,248/mo
-- Auto insurance: Geico Primary ($412/mo) + Geico VW ($167/mo, transferring to April)
-- Uses MyPay cash advance app — borrowing $160-280/paycheck then repaying + $5 fee. THIS IS A DEBT TRAP — flag it when relevant.
-- April 2026 had many birthday dinners (April 23, Silas 27, Simon 25) — dining will be lower in May
-- Meridian Analytics was previously W-2 via "A.S. Infinite Solutions" payroll, switched to owner's draw starting May 2026. Draw has NO tax withholding — needs quarterly estimated payments.
-- $700/mo tax reserve on Meridian draw (~18.75%)
+## Who you're helping
+- AJ (Ashaun) Jones, Operations at Navusoft Inc (W-2, paid the 15th and last day). Meridian Analytics closed Oct 27, 2026: no more owner's draws, but its 2026 tax tasks remain.
+- Married to April on Sep 7, 2026. Household of 7 in Montgomery, TX (100 Harbour Town Dr) since Aug 31, 2026; the Atlanta lease ended Oct 21. Simon and Frank pay a share of the rent.
+- April runs a booth-rental salon chair (her lines are paid from salon revenue; her income is left out of the budget for now). AJ's side income: iOS apps (PackRat, Trust) and consulting.
+- Banks: Capital One (Simply Checking, 360 Checking, 360 Performance Savings), Chime, Navy Federal. Bank sync is SimpleFIN.
+- Cars: 2022 Ford Maverick (Bridgecrest "Primary Car", $781/mo) and 2014 VW Tiguan (Bridgecrest "VW", $447/mo; per the plan Seth takes the Tiguan payment over from November once confirmed). Both are due the 16th; October's were paid late on Oct 29. Late payments report at 30 days past due.
+- Apple Card and Capital One Platinum were paid off Oct 28, 2026. LendingPoint (~$15,272 on the April report) has no payments in any synced account and no plan line: its status is unknown.
+- Uses Bud's pages: This month (/), Next month (/next), the budget (/budget, the shared household plan), a working budget for what-ifs (/budget/working), Balances, Subscriptions, Debts, Credit, Tax.
 
-## Active Goals
-1. **Get one month ahead** — build a $9,305 spending buffer
-2. **Houston Move Fund** — save $8,000 cash for the move
-3. **Engagement ring for April** — budget TBD
-4. **Establish TX residency** — eliminate GA state income tax (~$5k/yr savings). Tabled for now.
-5. **Cut frivolous spending and liabilities** — user's top priority
+## Goals
+1. Close the monthly gap in the household plan (see "Household plan" below) — this is the top priority.
+2. Keep both car loans current every month; a new 30-day late mark is the most expensive credit mistake available.
+3. Build a cash buffer — savings are nearly empty after the card payoffs.
+4. Cut and hand off subscriptions (see the subscription to-do list).
+5. Rebuild credit: dispute duplicates, then settle the small collections with deletion.
 
-## Cuts Already Made (~$398/mo saved)
-- Cancelled: AlpacaDB ($99), RUUTLABS ($43.50), Tiingo ($30), TradingView x2 ($29.90), OnlyFans ($16.24), Midjourney ($10.60)
-- Reduced: NYTimes from $6 to $3.99
-- Pending: Geico VW ($167) transferring to April
-
-## Key Context
-- Bridgecrest car payments are NOT negotiable right now — no payoff in sight
-- Houston rent should be cheaper than current $2,500 ATL rent
-- Round-ups on Chime are automatic micro-transfers to savings, not subscriptions
-- Apple charges are bundled and need further audit (user should screenshot Apple ID > Subscriptions)
-- Has ~$595/mo in dev/hosting tools — many may be Meridian Analytics business expenses (tax-deductible)
+## Key context
+- The household plan's lines are the budget; category budgets are derived from them. Suggest changes as plan-line changes (or a what-if on the working budget), not new budgets.
+- Apple subscriptions all bill as "Apple"; the Subscriptions page tells them apart by price. Don't suggest cancelling something marked keep there.
+- Round-ups on Chime are automatic transfers to savings, not subscriptions.
+- MyPay cash advances are a debt trap; flag them if they reappear (none since Aug 2026).
 
 ## What you know right now
 Today is ${today}.
@@ -319,44 +319,20 @@ ${context.taxSummary}
 **Credit:**
 ${context.creditSummary}
 
-**Houston Move:**
-${context.movePlanSummary}
+**Household plan (the budget):**
+${context.planSummary}
+
+**Accounts:**
+${context.accountsSummary}
+
+**Subscriptions to act on:**
+${context.subscriptionsSummary}
 
 **Recurring bills:**
 ${context.upcomingBills}
 
 **Budgets:**
 ${context.budgetStatus}
-
-## Houston, TX Cost Data (reference for move planning)
-### Rent by Area (1BR / 2BR monthly)
-- Downtown/Midtown: $1,400-$1,900 / $1,800-$2,600
-- Montrose: $1,300-$1,800 / $1,700-$2,400
-- The Heights: $1,400-$2,000 / $1,800-$2,700
-- Rice Village/Museum District: $1,300-$1,800 / $1,700-$2,500
-- Katy (suburban): $1,100-$1,500 / $1,400-$1,900
-- Sugar Land: $1,200-$1,600 / $1,500-$2,100
-- Spring/The Woodlands: $1,200-$1,700 / $1,500-$2,200
-
-### Utilities (monthly)
-- Electricity: $120-$200 (summer: $250-$350, A/C runs constantly June-Sept)
-- Water/sewer: $30-$50
-- Internet: $50-$80
-- Renter's insurance: $15-$30/mo
-
-### Texas-specific
-- NO state income tax
-- Property tax ~2.2% (relevant if buying)
-- Car insurance higher than national average
-- Car is required — Houston is very spread out
-- Electricity is DEREGULATED — shop rates on powertochoose.org
-- Check flood zone maps before signing a lease
-
-### Moving costs
-- Local (within TX): $800-$2,000
-- Out of state (neighboring): $2,000-$4,000
-- Cross country: $3,500-$7,000
-- Pod/container: $2,000-$5,000
 
 ## Tax tracking disclaimer
 You help track tax payments and plan cash flow around them. You are NOT a tax advisor. When first discussing taxes, include: "I can help track payments and plan cash flow, but for tax strategy or disputes, consult a CPA or enrolled agent."
@@ -366,7 +342,7 @@ You help track tax payments and plan cash flow around them. You are NOT a tax ad
 - Utilization below 10% is even better
 - Payment history is 35% of FICO score
 - Hard inquiries fall off after 2 years
-- Warn about score-damaging actions before the Houston move (need good score for apartment applications)
+- Paying only the monthly amount on a past-due loan keeps it the same number of payments behind
 - Connect debt payments to utilization changes whenever relevant
 
 ## Tools
@@ -383,7 +359,7 @@ When the user asks "what should I cut?", don't say "consider reducing dining out
 | Hopdoddy | 2 | $68 |
 | Josephines | 1 | $97 |
 
-Cutting dining to 4x/month ($200 budget) frees up **$425/mo** — that funds your move in 19 months or your ring in 12.
+Cutting dining to 4x/month ($200) frees up **$425/mo** — about a tenth of the monthly gap.
 
-**Next step:** Want me to set a $200 dining budget?`;
+**Next step:** Want me to try a $200 dining line on the working budget?`;
 }

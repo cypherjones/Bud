@@ -198,7 +198,7 @@ export async function syncTransactions(accessToken: string, enrollmentId: string
     if (lastSync) {
       const d = new Date(lastSync);
       d.setDate(d.getDate() - 10);
-      startDate = d.toISOString().split("T")[0];
+      startDate = d.toLocaleDateString("en-CA");
     } else {
       startDate = `${new Date().getFullYear()}-01-01`;
     }

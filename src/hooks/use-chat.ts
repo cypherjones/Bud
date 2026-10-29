@@ -10,7 +10,12 @@ export type Message = {
   content: string;
   images?: string[]; // data URLs for display
   toolCalls?: unknown[];
+  /** Set on messages loaded from history. */
+  createdAt?: string;
 };
+
+/** Older conversation stays on screen but isn't sent: Bud's context is rebuilt live each turn, and old threads carry stale facts. */
+const CONTEXT_WINDOW_MS = 12 * 60 * 60 * 1000;
 
 export function useChat() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -24,10 +29,11 @@ export function useChat() {
       .then((data) => {
         if (data.messages) {
           setMessages(
-            data.messages.map((m: { id: string; role: string; content: string }) => ({
+            data.messages.map((m: { id: string; role: string; content: string; createdAt?: string }) => ({
               id: m.id,
               role: m.role as "user" | "assistant",
               content: m.content,
+              createdAt: m.createdAt,
             }))
           );
         }
@@ -51,8 +57,10 @@ export function useChat() {
       setIsLoading(true);
 
       try {
-        // Build the message payload — last 20 messages
-        const apiMessages = updatedMessages.slice(-20).map((m) => {
+        // Build the message payload — the last 20 messages from the past 12 hours
+        const cutoff = Date.now() - CONTEXT_WINDOW_MS;
+        const recent = updatedMessages.filter((m) => !m.createdAt || Date.parse(m.createdAt) >= cutoff);
+        const apiMessages = recent.slice(-20).map((m) => {
           if (m.images && m.images.length > 0) {
             // Multimodal message with images and/or PDFs
             return {
