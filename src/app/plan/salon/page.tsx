@@ -1,4 +1,5 @@
 import { loadPlan } from "@/lib/household/load";
+import { budgetTotals } from "@/lib/household/calc";
 import { getBusinessConfig } from "@/lib/business/config";
 import { SalonPlanner } from "@/components/plan/salon-planner";
 import { PlanPage, Aside } from "@/components/plan/plan-ui";
@@ -8,22 +9,29 @@ export const dynamic = "force-dynamic";
 
 export default function SalonPage() {
   const { config, lines } = loadPlan();
-  const card = lines.find((l) => l.slug === "april_card");
+  const totals = budgetTotals(lines, config.income);
   return (
     <PlanPage
       eyebrow={{ href: "/plan", label: "Business" }}
       title="April's salon"
-      sub="A booth-rental chair: she keeps what clients pay and owes the booth rent every week. This is the plan for what it brings in, what it costs, and what it takes to reach the number the household plan is testing."
+      sub="Three days a week behind the chair. Her own plan sets the costs and splits every dollar clients pay; this page holds it against the household budget."
     >
-      <SalonPlanner initial={getBusinessConfig().salon} cardPayment={card ? card.amount / 100 : 0} taxHerProfit={config.tax.herProfit} />
-      <Aside title="How it fits the household">
+      <SalonPlanner
+        initial={getBusinessConfig().salon}
+        taxHerProfit={config.tax.herProfit}
+        budgetNet={totals.net}
+        herNet={config.income.herNet}
+        householdTithePct={config.income.tithePct}
+      />
+      <Aside title="What changed since her plan">
         <p>
-          Her income is out of the budget for now, and the lines marked hers — her card and her allowance — come out of the salon.
-          The three futures test what changes once she brings home a steady amount; the target above starts at the same number.
+          Her plan was written before the wedding, for one person. Its $4,750 a month of personal need — rent, food, car, phone —
+          is now inside the household budget, so the salon no longer has to cover it. What&apos;s left on her side of the budget is
+          her card and her allowance; everything else she brings home goes at the budget&apos;s gap.
         </p>
         <p>
-          Her profit is self-employment income on the joint return. Nothing is withheld from it, so it&apos;s paid either as quarterly
-          estimates or by AJ withholding extra on his W-4 — /tax works out the second.
+          Her paused personal items mostly have a budget line now: her allowance, the car maintenance fund and savings. Whether
+          those pause too is a budget decision for both of you.
         </p>
       </Aside>
       <PageTasks link="/plan/salon" />

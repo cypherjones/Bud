@@ -12,41 +12,101 @@ const clamp0 = (n: number) => Math.max(0, Number.isFinite(n) ? n : 0);
 // Self-employment tax on net earnings: 92.35% of profit at 15.3%
 export const SE_TAX_RATE = 0.9235 * 0.153;
 
-export function salonMonth(s: SalonPlan) {
-  const weeks = Math.min(52, clamp0(s.weeksWorked));
+// Her profit lands on a joint return with AJ's wages, which puts the top of
+// it in the 22% bracket. The 20% QBI deduction applies to a sole proprietor.
+export const JOINT_MARGINAL_RATE = 0.22;
+const QBI = 0.2;
+
+/** Estimated federal tax on a year of her Schedule C profit: SE tax plus
+ *  income tax at the household's marginal rate. */
+export function salonTaxOnProfit(annualProfit: number) {
+  const profit = Math.max(0, annualProfit);
+  const se = profit * SE_TAX_RATE;
+  const income = Math.max(0, profit - se / 2) * (1 - QBI) * JOINT_MARGINAL_RATE;
+  return { se, income, total: se + income };
+}
+
+const PER_MONTH = 52 / 12;
+
+/**
+ * A month of the chair under April's Profit First split. Every bucket is a
+ * percentage of what clients pay. Costs come out of the operating bucket;
+ * if they run past it, the overrun comes out of her pay, so "home" is what
+ * really reaches the household.
+ */
+export function salonMonth(s: SalonPlan, grossWeekOverride?: number) {
+  const worked = Math.min(52, clamp0(s.weeksWorked)) / 52;
   const proc = clamp0(s.processingPct) / 100;
-  const keep = 1 - clamp0(s.setAsidePct) / 100;
-  const gross = (clamp0(s.avgTicket) * clamp0(s.clientsPerWeek) * weeks) / 12;
+  const grossWeek = grossWeekOverride ?? clamp0(s.avgTicket) * clamp0(s.clientsPerWeek);
+  const gross = grossWeek * PER_MONTH * worked;
   const processing = gross * proc;
-  const boothRent = (clamp0(s.boothRentWeekly) * 52) / 12;
-  const fixed = boothRent + clamp0(s.software) + clamp0(s.supplies) + clamp0(s.other);
-  const expenses = fixed + processing;
-  const profit = gross - expenses;
-  const setAside = Math.max(0, profit) * (clamp0(s.setAsidePct) / 100);
-  const takeHome = profit - setAside;
-  // What one more weekly client is worth a month, before the set-aside
-  const perWeeklyClient = (clamp0(s.avgTicket) * (1 - proc) * weeks) / 12;
-  const clientsToBreakEven = perWeeklyClient > 0 ? fixed / perWeeklyClient : null;
-  const clientsForTarget = perWeeklyClient > 0 && keep > 0 ? (clamp0(s.targetTakeHome) / keep + fixed) / perWeeklyClient : null;
-  const plusFivePerTicket = (5 * clamp0(s.clientsPerWeek) * weeks * (1 - proc) * keep) / 12;
-  const annualProfit = profit * 12;
-  const seTaxAnnual = Math.max(0, annualProfit) * SE_TAX_RATE;
+  // Booth rent is owed every week; the rest only in weeks she works
+  const boothRent = clamp0(s.boothRentWeekly) * PER_MONTH;
+  const weekly = (n: number) => clamp0(n) * PER_MONTH * worked;
+  const costLines = {
+    supplies: weekly(s.suppliesWeekly),
+    cleaning: weekly(s.cleaningWeekly),
+    marketing: weekly(s.marketingWeekly),
+    snacks: weekly(s.snacksWeekly),
+    gas: weekly(s.gasWeekly),
+    software: clamp0(s.software),
+    other: clamp0(s.other),
+  };
+  const fixed = boothRent + Object.values(costLines).reduce((t, n) => t + n, 0);
+  const costs = fixed + processing;
+  const profit = gross - costs;
+
+  const pct = (n: number) => clamp0(n) / 100;
+  const buckets = {
+    tithe: gross * pct(s.tithePct),
+    ownerPay: gross * pct(s.ownerPayPct),
+    opex: gross * pct(s.opexPct),
+    profit: gross * pct(s.profitPct),
+    tax: gross * pct(s.taxPct),
+  };
+  const splitPct = s.tithePct + s.ownerPayPct + s.opexPct + s.profitPct + s.taxPct;
+  const opexOver = costs - buckets.opex; // > 0: costs run past the bucket
+  const home = buckets.ownerPay - Math.max(0, opexOver);
+
+  const tax = salonTaxOnProfit(profit * 12);
+  const taxNeed = tax.total / 12;
+
   return {
+    grossWeek,
     gross,
     processing,
     boothRent,
+    costLines,
     fixed,
-    expenses,
+    costs,
     profit,
-    setAside,
-    takeHome,
-    clientsToBreakEven,
-    clientsForTarget,
-    plusFivePerTicket,
-    annualProfit,
-    seTaxAnnual,
-    quarterly: (setAside * 12) / 4,
+    buckets,
+    splitPct,
+    opexOver,
+    home,
+    tax,
+    taxNeed,
+    taxShort: taxNeed - buckets.tax,
+    annualProfit: profit * 12,
+    quarterly: tax.total / 4,
   };
+}
+
+/** Takings a week that bring `homeMonthly` home under the split. */
+export function salonWeekFor(s: SalonPlan, homeMonthly: number): number | null {
+  const worked = Math.min(52, clamp0(s.weeksWorked)) / 52;
+  const own = clamp0(s.ownerPayPct) / 100;
+  if (own <= 0 || worked <= 0) return null;
+  const { fixed } = salonMonth(s, 0);
+  const proc = clamp0(s.processingPct) / 100;
+  const opex = clamp0(s.opexPct) / 100;
+  let gross = homeMonthly / own;
+  if (fixed + proc * gross > opex * gross) {
+    const denom = own + opex - proc;
+    if (denom <= 0) return null;
+    gross = (homeMonthly + fixed) / denom;
+  }
+  return gross / (PER_MONTH * worked);
 }
 
 export function appMonth(app: AppPlan, commissionPct: number) {

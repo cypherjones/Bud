@@ -41,8 +41,8 @@ export default function PlanOverviewPage() {
       line: nextDue ? `tasks · next due ${new Date(nextDue.dueAt! + "T12:00:00").toLocaleDateString("en-US", { day: "numeric", month: "short" })}` : "tasks" },
   ];
   const businesses: Tile[] = [
-    { href: "/plan/salon", title: "April's salon", stat: usd(salon.takeHome), tone: salon.takeHome < 0 ? "neg" : undefined,
-      line: `hers to spend a month, ${business.salon.clientsPerWeek} clients a week` },
+    { href: "/plan/salon", title: "April's salon", stat: usd(salon.home), tone: salon.home < 0 ? "neg" : undefined,
+      line: `her pay a month, ${business.salon.daysPerWeek} days and ${business.salon.clientsPerWeek} clients a week` },
     { href: "/plan/side-hustles", title: "Side hustles", stat: usd(side.takeHome), tone: side.gap > 0 ? "neg" : "pos",
       line: `a month against the ${usd(business.side.goal)} goal` },
     { href: "/plan/meridian", title: "Meridian", stat: `${openFor("/plan/meridian")}`,

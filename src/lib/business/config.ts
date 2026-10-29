@@ -7,9 +7,9 @@ import { APP_MODELS, APP_STATUSES } from "./calc";
 /**
  * Business plans — April's salon and AJ's side work. One JSON blob in
  * `settings` under SETTINGS_KEY, same pattern as the household plan. All
- * amounts are DOLLARS. Salon defaults are the 25 Oct plan's figures (about
- * $600 a week gross, $250 a week booth rent, GlossGenius $25 a month);
- * everything else starts at zero until someone fills it in.
+ * amounts are DOLLARS. Salon costs and the Profit First split come from
+ * April's own plan (weekly costs after her temporary cuts); booth rent and
+ * GlossGenius from the 25 Oct plan. Side work starts at zero.
  */
 export const SETTINGS_KEY = "business_plans";
 
@@ -18,14 +18,25 @@ const num = (d: number) => z.number().catch(d);
 const salonSchema = z.object({
   avgTicket: num(60),
   clientsPerWeek: num(10),
+  daysPerWeek: num(3), // days behind the chair
   weeksWorked: num(52), // weeks a year she's behind the chair
+  // Weekly costs, from her own plan after the temporary cuts
   boothRentWeekly: num(250), // owed all 52 weeks
+  suppliesWeekly: num(35),
+  cleaningWeekly: num(15),
+  marketingWeekly: num(30),
+  snacksWeekly: num(0),
+  gasWeekly: num(0), // driving to her own chair is commuting; the household Fuel line pays it
   software: num(25), // GlossGenius, per month
-  supplies: num(0), // product, tools, per month
   processingPct: num(0), // card processing on what clients pay
   other: num(0), // per month
-  setAsidePct: num(30), // self-employment tax plus income tax
-  targetTakeHome: num(2520), // what the plan's futures assume she nets
+  // Her Profit First split, as percentages of what clients pay
+  tithePct: num(10),
+  ownerPayPct: num(35),
+  opexPct: num(40),
+  profitPct: num(5),
+  taxPct: num(10),
+  weeklyTarget: num(1800), // her goal for takings a week
 });
 
 
