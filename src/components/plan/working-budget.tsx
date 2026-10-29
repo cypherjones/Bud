@@ -253,7 +253,7 @@ export function WorkingBudget({ liveLines, liveIncome, initialScenario, categori
                           </span>
                         </td>
                         <td className="hidden sm:table-cell px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">—</td>
-                        <td className="px-3 py-1.5 w-28 sm:w-32">
+                        <td className="px-2 sm:px-3 py-1.5 w-[8.5rem] sm:w-36">
                           <NumberField id={`add_${a.id}`} step={5} value={a.amount / 100}
                             onChange={(n) => update({ ...s, added: s.added.map((x) => (x.id === a.id ? { ...x, amount: Math.max(0, Math.round(n * 100)) } : x)) })} />
                         </td>
@@ -324,7 +324,7 @@ function LineRow({
         <span className="sm:hidden block text-[11px] text-muted-foreground">Budget {usd(before)}</span>
       </td>
       <td className="hidden sm:table-cell px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">{usd(before)}</td>
-      <td className="px-3 py-1.5 w-28 sm:w-32">
+      <td className="px-2 sm:px-3 py-1.5 w-[8.5rem] sm:w-36">
         {isTithe || cut ? (
           <p className={cn("text-right font-mono tabular-nums", cut ? "text-muted-foreground" : undefined)}>{usd(after)}</p>
         ) : (

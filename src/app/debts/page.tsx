@@ -56,7 +56,7 @@ export default function DebtsPage() {
   if (allDebts.length === 0) {
     return (
       <div className="flex flex-col h-full">
-        <header className="px-8 py-6 border-b border-border bg-card/50 flex items-center justify-between">
+        <header className="px-4 sm:px-8 py-5 sm:py-6 border-b border-border bg-card/50 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Debt Payoff</h1>
             <p className="text-sm text-muted-foreground">
@@ -65,7 +65,7 @@ export default function DebtsPage() {
           </div>
           <AddTaxObligationDialog />
         </header>
-        <div className="flex-1 overflow-auto p-8">
+        <div className="flex-1 overflow-auto p-4 sm:p-8">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Your Debts</CardTitle>
@@ -163,14 +163,14 @@ export default function DebtsPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <header className="px-8 py-6 border-b border-border bg-card/50 flex items-center justify-between">
+      <header className="px-4 sm:px-8 py-5 sm:py-6 border-b border-border bg-card/50 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Debt Payoff</h1>
           <p className="text-sm text-muted-foreground">
             Smart allocation and payoff tracking
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link href="/reports" className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1.5 mr-2">
             <BarChart3 className="w-4 h-4" />
             Debt strategy →
@@ -180,7 +180,7 @@ export default function DebtsPage() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-auto p-8 space-y-8">
+      <div className="flex-1 overflow-auto p-4 sm:p-8 space-y-8">
         {/* Top-of-page urgent surfaces — past-due deadlines and high-utilization
             cards drive credit-score outcomes more than the totals below. */}
         <div className="space-y-3">
@@ -330,11 +330,11 @@ export default function DebtsPage() {
                 return (
                   <Card key={debt.id}>
                     <CardHeader className="pb-3">
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <CardTitle className="text-base">
                           {debt.creditorName}
                         </CardTitle>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <Badge
                             variant="outline"
                             className={STATUS_COLORS[debt.status] ?? ""}

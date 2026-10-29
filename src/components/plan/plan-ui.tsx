@@ -60,7 +60,8 @@ export function SectionHead({ title, sub, id }: { title: string; sub?: React.Rea
 export function TotalsStrip({ children, cols = 5 }: { children: React.ReactNode; cols?: 2 | 3 | 4 | 5 | 6 }) {
   const lg = { 2: "md:grid-cols-2", 3: "md:grid-cols-3", 4: "md:grid-cols-4", 5: "md:grid-cols-5", 6: "md:grid-cols-3 xl:grid-cols-6" }[cols];
   return (
-    <div className={cn("grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border", lg)}>
+    // On a phone the grid is two wide; an odd last tile takes the whole row instead of leaving a gap.
+    <div className={cn("grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border max-md:[&>*:last-child:nth-child(odd)]:col-span-2", lg)}>
       {children}
     </div>
   );

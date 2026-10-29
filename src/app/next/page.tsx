@@ -54,10 +54,10 @@ export default function NextMonthPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                <th className="py-1 pr-3 text-left font-semibold">Day</th>
+                <th className="hidden sm:table-cell py-1 pr-3 text-left font-semibold">Day</th>
                 <th className="py-1 pr-3 text-left font-semibold">What</th>
                 <th className="py-1 pl-3 text-right font-semibold">Amount</th>
-                <th className="py-1 pl-3 text-right font-semibold">Cash after</th>
+                <th className="hidden sm:table-cell py-1 pl-3 text-right font-semibold">Cash after</th>
               </tr>
             </thead>
             <tbody>
@@ -82,8 +82,8 @@ export default function NextMonthPage() {
             <thead>
               <tr className="text-[11px] uppercase tracking-wide text-muted-foreground">
                 <th className="py-1 pr-3 text-left font-semibold">Lines</th>
-                <th className="py-1 pl-3 text-right font-semibold">Budget</th>
-                <th className="py-1 pl-3 text-right font-semibold">On a date</th>
+                <th className="hidden sm:table-cell py-1 pl-3 text-right font-semibold">Budget</th>
+                <th className="hidden sm:table-cell py-1 pl-3 text-right font-semibold">On a date</th>
                 <th className="py-1 pl-3 text-right font-semibold">Spread</th>
               </tr>
             </thead>
@@ -94,8 +94,8 @@ export default function NextMonthPage() {
                     {r.labels.join(", ")}
                     <span className="ml-2 text-[11px] text-muted-foreground">{r.category}</span>
                   </td>
-                  <td className="py-1.5 pl-3 text-right font-mono tabular-nums whitespace-nowrap text-muted-foreground">{formatCurrency(r.plannedCents)}</td>
-                  <td className="py-1.5 pl-3 text-right font-mono tabular-nums whitespace-nowrap text-muted-foreground">{r.scheduledCents > 0 ? formatCurrency(r.scheduledCents) : "—"}</td>
+                  <td className="hidden sm:table-cell py-1.5 pl-3 text-right font-mono tabular-nums whitespace-nowrap text-muted-foreground">{formatCurrency(r.plannedCents)}</td>
+                  <td className="hidden sm:table-cell py-1.5 pl-3 text-right font-mono tabular-nums whitespace-nowrap text-muted-foreground">{r.scheduledCents > 0 ? formatCurrency(r.scheduledCents) : "—"}</td>
                   <td className="py-1.5 pl-3 text-right font-mono tabular-nums whitespace-nowrap">{formatCurrency(r.spreadCents)}</td>
                 </tr>
               ))}
@@ -139,17 +139,28 @@ function MonthRow({ label }: { label: string }) {
 function DayRows({ d }: { d: AheadDay }) {
   return (
     <>
+      {/* Phone: the day and its closing cash head the group instead of taking two columns */}
+      <tr className="sm:hidden">
+        <td colSpan={4} className="pt-2 pb-0.5">
+          <div className="flex items-baseline justify-between gap-3 text-[12px]">
+            <span className="font-medium text-muted-foreground">{day(d.date)}</span>
+            <span className={cn("font-mono tabular-nums", d.balanceCents < 0 ? "text-red-400" : "text-muted-foreground")}>
+              cash after {formatCurrency(d.balanceCents)}
+            </span>
+          </div>
+        </td>
+      </tr>
       {d.events.map((e, i) => {
         const lastRow = i === d.events.length - 1;
         return (
           <tr key={`${d.date}-${i}`} className={cn(lastRow && "border-b border-border")}>
-            <td className="py-1 pr-3 whitespace-nowrap text-muted-foreground text-[13px]">{i === 0 ? day(d.date) : ""}</td>
+            <td className="hidden sm:table-cell py-1 pr-3 whitespace-nowrap text-muted-foreground text-[13px]">{i === 0 ? day(d.date) : ""}</td>
             <td className="py-1 pr-3">
               {e.label}
               {!e.seen && e.cents < 0 && <span className="ml-2 text-[11px] text-amber-400">plan</span>}
             </td>
             <td className={cn("py-1 pl-3 text-right font-mono tabular-nums whitespace-nowrap", e.cents > 0 && "text-emerald-400")}>{signed(e.cents)}</td>
-            <td className={cn("py-1 pl-3 text-right font-mono tabular-nums whitespace-nowrap", d.balanceCents < 0 && "text-red-400")}>
+            <td className={cn("hidden sm:table-cell py-1 pl-3 text-right font-mono tabular-nums whitespace-nowrap", d.balanceCents < 0 && "text-red-400")}>
               {lastRow ? formatCurrency(d.balanceCents) : ""}
             </td>
           </tr>

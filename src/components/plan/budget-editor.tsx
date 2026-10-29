@@ -254,7 +254,7 @@ function GroupRows({
                 </select>
               )}
             </td>
-            <td className="px-3 py-1.5 w-28 sm:w-32 align-top sm:align-middle">
+            <td className="px-2 sm:px-3 py-1.5 w-[8.5rem] sm:w-36 align-top sm:align-middle">
               {isTithe ? (
                 <p className="text-right font-mono tabular-nums text-muted-foreground">{usd(planned)}</p>
               ) : (
