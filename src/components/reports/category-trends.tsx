@@ -1,9 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Minus, ExternalLink } from "lucide-react";
+import { SectionHead } from "@/components/plan/plan-ui";
+import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { formatCurrency } from "@/lib/utils/format";
 import {
   LineChart,
@@ -65,13 +64,7 @@ function trendForCategory(
 
 export function CategoryTrends({ data }: Props) {
   if (data.length === 0) {
-    return (
-      <Card>
-        <CardContent className="pt-5">
-          <p className="text-sm text-muted-foreground text-center py-12">No spending data</p>
-        </CardContent>
-      </Card>
-    );
+    return <p className="text-sm text-muted-foreground">No spending yet.</p>;
   }
 
   const partialIdx = data.findIndex((m) => m.isPartial);
@@ -169,33 +162,35 @@ export function CategoryTrends({ data }: Props) {
   rows.sort((a, b) => b.latest - a.latest);
 
   const flaggedRows = rows.filter((r) => r.flagged);
+  // "Oct 2026" → "October"; the comparison months the table and flags use.
+  const SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const fullMonth = (label: string) => {
+    const i = SHORT.indexOf(label.split(" ")[0]);
+    return i < 0 ? label : new Date(2000, i, 1).toLocaleDateString("en-US", { month: "long" });
+  };
+  const latestName = fullMonth(lastCompleteMonth.month);
+  const priorName = lastCompleteIdx >= 1 ? fullMonth(data[lastCompleteIdx - 1].month) : null;
+  const versus = priorName ? `${latestName} against ${priorName}` : latestName;
 
   return (
-    <div className="space-y-6">
-      {/* Multi-line trend chart for top 5 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-medium">
-            Top 5 Categories — {data.length}-Month Trend
-          </CardTitle>
-          <p className="text-xs text-muted-foreground mt-1">
-            Tracks the categories that dominate your most recent <em>complete</em> month. Lines diverging up = problem
-            categories; lines trending down = working cuts.
-            {latestPartial && (
-              <>
-                {" "}The final point is <strong>{latestPartial.daysCovered} of {latestPartial.daysInMonth} days</strong> —
-                month-to-date only, not a full month.
-              </>
-            )}
-          </p>
-        </CardHeader>
-        <CardContent>
-          {chartData.length >= 2 ? (
-            <ResponsiveContainer width="100%" height={320}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `$${v}`} />
+    <div className="space-y-10">
+      <section className="space-y-3">
+        <SectionHead
+          title="The five biggest, month by month"
+          sub={
+            <>
+              Picked from {latestName}, the last full month.
+              {latestPartial && ` The last point is ${latestPartial.month} so far: ${latestPartial.daysCovered} of ${latestPartial.daysInMonth} days.`}
+            </>
+          }
+        />
+        {chartData.length >= 2 ? (
+          <div className="rounded-xl border border-border bg-card px-2 pt-4 pb-2">
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={chartData} margin={{ left: -8, right: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                <XAxis dataKey="month" tick={{ fontSize: 10 }} interval={0} tickFormatter={(m: string) => m.split(" ")[0]} />
+                <YAxis tick={{ fontSize: 10 }} width={52} tickFormatter={(v) => `$${Number(v).toLocaleString()}`} />
                 <Tooltip
                   formatter={(value, name) => [`$${Number(value).toLocaleString()}`, name as string]}
                   contentStyle={{ borderRadius: 8, fontSize: 12 }}
@@ -209,89 +204,56 @@ export function CategoryTrends({ data }: Props) {
                     stroke={colorByName.get(name) ?? "#6b7280"}
                     strokeWidth={2}
                     dot={{ r: 3 }}
+                    isAnimationActive={false}
                   />
                 ))}
               </LineChart>
             </ResponsiveContainer>
-          ) : (
-            <p className="text-sm text-muted-foreground text-center py-12">
-              Need at least 2 months of data for a trend line.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">A trend needs at least two months.</p>
+        )}
+      </section>
 
-      {/* Auto-flagged categories */}
       {flaggedRows.length > 0 && (
-        <Card className="border-amber-200 dark:border-amber-800">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-amber-700 dark:text-amber-400 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4" />
-              Trending Up
-              <span className="text-xs font-normal text-muted-foreground">
-                · {flaggedRows.length} categor{flaggedRows.length !== 1 ? "ies" : "y"} need attention
-              </span>
-            </CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">
-              Categories that grew &gt;20% MoM, or new categories with meaningful spend.
-              Click a category to see the transactions; cut suggestions show how much would free up.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        <section className="space-y-3">
+          <SectionHead
+            title="Going up"
+            sub={`${versus}: up more than 20%, or new with $50 or more. Tap one to see the purchases.`}
+          />
+          <ul className="divide-y divide-border rounded-xl border border-amber-500/30 bg-amber-500/5">
             {flaggedRows.map((r) => {
               const id = idByName.get(r.name);
-              const cut20 = Math.round(r.latest * 0.2);
-              const cut50 = Math.round(r.latest * 0.5);
               return (
-                <div key={r.name} className="space-y-1.5 pb-3 border-b border-border last:border-0 last:pb-0">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: r.color }} />
-                      {id ? (
-                        <Link
-                          href={`/transactions?category=${id}`}
-                          className="text-sm font-medium truncate hover:underline inline-flex items-center gap-1"
-                        >
-                          {r.name}
-                          <ExternalLink className="w-3 h-3 opacity-50" />
-                        </Link>
-                      ) : (
-                        <span className="text-sm font-medium truncate">{r.name}</span>
-                      )}
-                      {r.direction === "new" && (
-                        <Badge variant="outline" className="bg-blue-500/15 text-blue-400 border-blue-500/30 text-[9px]">
-                          NEW
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 text-sm shrink-0">
-                      <span className="text-muted-foreground text-xs">
-                        {formatCurrency(r.prior)} → {formatCurrency(r.latest)}
-                      </span>
-                      <span className="font-semibold text-amber-500 min-w-[50px] text-right">
-                        {r.direction === "new" ? "new" : `+${Math.round(r.pctChange * 100)}%`}
-                      </span>
-                    </div>
+                <li key={r.name} className="px-4 py-2.5 text-sm">
+                  <div className="flex items-baseline gap-3">
+                    <span className="w-2 h-2 rounded-full shrink-0 self-center" style={{ backgroundColor: r.color }} />
+                    {id ? (
+                      <Link href={`/transactions?category=${id}`} className="flex-1 min-w-0 truncate font-medium hover:underline">
+                        {r.name}
+                      </Link>
+                    ) : (
+                      <span className="flex-1 min-w-0 truncate font-medium">{r.name}</span>
+                    )}
+                    <span className="font-mono tabular-nums whitespace-nowrap">{formatCurrency(r.latest)}</span>
+                    <span className="w-12 text-right text-xs font-semibold text-amber-500">
+                      {r.direction === "new" ? "new" : `+${Math.round(r.pctChange * 100)}%`}
+                    </span>
                   </div>
-                  <p className="text-[11px] text-muted-foreground pl-4">
-                    Cut 20% → <span className="text-emerald-500 font-medium">{formatCurrency(cut20)}/mo</span> back ·
-                    Cut 50% → <span className="text-emerald-500 font-medium">{formatCurrency(cut50)}/mo</span> back
-                    {" "}toward the monthly gap
+                  <p className="mt-0.5 pl-5 text-xs text-muted-foreground">
+                    {r.direction === "new" ? `nothing in ${priorName ?? "the month before"}` : `was ${formatCurrency(r.prior)}`}
+                    {" · "}half of it is {formatCurrency(Math.round(r.latest * 0.5))} a month
                   </p>
-                </div>
+                </li>
               );
             })}
-          </CardContent>
-        </Card>
+          </ul>
+        </section>
       )}
 
-      {/* Full MoM table */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium">All Categories — Month-over-Month</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-1.5">
+      <section className="space-y-3">
+        <SectionHead title="Every category" sub={`${versus}.`} />
+        <ul className="divide-y divide-border text-sm">
             {rows.map((r) => {
               const Icon =
                 r.direction === "up"
@@ -305,49 +267,41 @@ export function CategoryTrends({ data }: Props) {
                         : Minus;
               const tone =
                 r.direction === "up"
-                  ? "text-red-500"
+                  ? "text-red-400"
                   : r.direction === "down"
-                    ? "text-emerald-500"
+                    ? "text-emerald-400"
                     : r.direction === "new"
-                      ? "text-blue-500"
+                      ? "text-amber-400"
                       : r.direction === "ended"
-                        ? "text-emerald-500"
+                        ? "text-emerald-400"
                         : "text-muted-foreground";
               const id = idByName.get(r.name);
               return (
-                <div key={r.name} className="flex items-center justify-between gap-3 py-1.5 border-b border-border last:border-0">
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: r.color }} />
-                    {id ? (
-                      <Link
-                        href={`/transactions?category=${id}`}
-                        className="text-sm truncate hover:underline"
-                      >
-                        {r.name}
-                      </Link>
-                    ) : (
-                      <span className="text-sm truncate">{r.name}</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-4 text-sm shrink-0">
-                    <span className="font-medium min-w-[80px] text-right">{formatCurrency(r.latest)}</span>
-                    <span className={`flex items-center gap-1 ${tone} min-w-[70px] justify-end text-xs`}>
-                      <Icon className="w-3 h-3" />
-                      {r.direction === "new"
-                        ? "new"
-                        : r.direction === "ended"
-                          ? "ended"
-                          : r.prior > 0
-                            ? `${r.pctChange > 0 ? "+" : ""}${Math.round(r.pctChange * 100)}%`
-                            : "—"}
-                    </span>
-                  </div>
-                </div>
+                <li key={r.name} className="flex items-center gap-3 py-1.5">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: r.color }} />
+                  {id ? (
+                    <Link href={`/transactions?category=${id}`} className="flex-1 min-w-0 truncate hover:underline">
+                      {r.name}
+                    </Link>
+                  ) : (
+                    <span className="flex-1 min-w-0 truncate">{r.name}</span>
+                  )}
+                  <span className="font-mono tabular-nums whitespace-nowrap">{formatCurrency(r.latest)}</span>
+                  <span className={`flex w-16 items-center justify-end gap-1 text-xs ${tone}`}>
+                    <Icon className="w-3 h-3" />
+                    {r.direction === "new"
+                      ? "new"
+                      : r.direction === "ended"
+                        ? "ended"
+                        : r.prior > 0
+                          ? `${r.pctChange > 0 ? "+" : ""}${Math.round(r.pctChange * 100)}%`
+                          : "—"}
+                  </span>
+                </li>
               );
             })}
-          </div>
-        </CardContent>
-      </Card>
+        </ul>
+      </section>
     </div>
   );
 }

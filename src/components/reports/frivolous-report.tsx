@@ -1,10 +1,8 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SectionHead, TotalsStrip, Total, Aside } from "@/components/plan/plan-ui";
 import { formatCurrency } from "@/lib/utils/format";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { CategorySelect } from "@/components/transactions/category-select";
-import { AlertTriangle } from "lucide-react";
 
 type Category = {
   id: string;
@@ -54,206 +52,118 @@ function shortDate(iso: string): string {
 }
 
 export function FrivolousReport({ data, categories }: Props) {
-  const donutData = data.byCategory.map((c) => ({ ...c, value: c.value / 100 }));
+  const top = data.byCategory[0]?.value ?? 0;
 
   return (
-    <div className="space-y-6">
-      {/* Header Metrics */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-5">
-            <p className="text-xs text-muted-foreground">Discretionary (last {data.daysInWindow}d)</p>
-            <p className="text-2xl font-bold tracking-tight mt-1 text-red-500">{formatCurrency(data.total)}</p>
-            <p className="text-[10px] text-muted-foreground mt-1">by category — not AI tagged</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-5">
-            <p className="text-xs text-muted-foreground">% of Total Spending</p>
-            <p className="text-2xl font-bold tracking-tight mt-1">{data.percentage}%</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-5">
-            <p className="text-xs text-muted-foreground">Run Rate</p>
-            {data.isVolatile ? (
-              <>
-                <p className="text-2xl font-bold tracking-tight mt-1 text-muted-foreground">—</p>
-                <p className="text-xs text-amber-500 mt-1">
-                  Need {7 - data.daysInWindow} more day{7 - data.daysInWindow !== 1 ? "s" : ""} of data
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="text-2xl font-bold tracking-tight mt-1 text-red-500">{formatCurrency(data.monthlyProjection)}/mo</p>
-                <p className="text-xs text-muted-foreground mt-1">{formatCurrency(data.annualProjection)}/yr</p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-5">
-            <p className="text-xs text-muted-foreground">Transactions</p>
-            <p className="text-2xl font-bold tracking-tight mt-1">{data.items.length}</p>
-          </CardContent>
-        </Card>
-      </div>
+    <div className="space-y-10">
+      <TotalsStrip cols={4}>
+        <Total
+          label="Discretionary"
+          value={formatCurrency(data.total)}
+          note={`this month, ${data.daysInWindow} day${data.daysInWindow !== 1 ? "s" : ""} in`}
+        />
+        <Total label="Share of spending" value={`${data.percentage}%`} note="of everything spent this month" />
+        <Total
+          label="Monthly pace"
+          value={data.isVolatile ? "—" : formatCurrency(data.monthlyProjection)}
+          tone={data.isVolatile ? "text-muted-foreground" : undefined}
+          note={
+            data.isVolatile
+              ? `needs ${7 - data.daysInWindow} more day${7 - data.daysInWindow !== 1 ? "s" : ""} of data`
+              : `${formatCurrency(data.annualProjection)} a year at this pace`
+          }
+        />
+        <Total label="Purchases" value={String(data.items.length)} />
+      </TotalsStrip>
 
-      {/* Donut + List */}
-      <div className="grid md:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium">By Category</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {donutData.length > 0 ? (
-              <>
-                <ResponsiveContainer width="100%" height={220}>
-                  <PieChart>
-                    <Pie
-                      data={donutData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={50}
-                      outerRadius={85}
-                      dataKey="value"
-                      stroke="none"
-                    >
-                      {donutData.map((entry, i) => (
-                        <Cell key={i} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value) => `$${Number(value).toFixed(2)}`} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="flex flex-wrap gap-3 mt-2">
-                  {donutData.map((c) => (
-                    <div key={c.name} className="flex items-center gap-1.5 text-xs">
-                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
-                      {c.name}
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground text-center py-12">No frivolous spending found</p>
-            )}
-          </CardContent>
-        </Card>
+      <div className="grid gap-10 md:grid-cols-2">
+        <section className="space-y-3">
+          <SectionHead title="By category" />
+          {data.byCategory.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nothing discretionary this month.</p>
+          ) : (
+            <ul className="space-y-2.5">
+              {data.byCategory.map((c) => (
+                <li key={c.name} className="text-sm">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="truncate">{c.name}</span>
+                    <span className="font-mono tabular-nums">{formatCurrency(c.value)}</span>
+                  </div>
+                  <div className="mt-1 h-1.5 rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${top > 0 ? Math.max(2, (c.value / top) * 100) : 0}%`, backgroundColor: c.color }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium">Top Frivolous Transactions</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <section className="space-y-3">
+          <SectionHead title="Biggest purchases" />
+          <ul className="divide-y divide-border text-sm">
             {data.items.slice(0, 12).map((item, i) => (
-              <div key={i} className="flex items-center justify-between">
-                <div>
-                  <span className="text-sm font-medium">{item.merchant ?? "Unknown"}</span>
-                  <span className="text-xs text-muted-foreground ml-2">{item.categoryName}</span>
-                </div>
-                <span className="text-sm font-medium text-red-500">{formatCurrency(item.amount)}</span>
-              </div>
+              <li key={i} className="flex items-baseline gap-3 py-1.5">
+                <span className="w-12 shrink-0 text-xs text-muted-foreground">{shortDate(item.date)}</span>
+                <span className="flex-1 min-w-0 truncate">
+                  {item.merchant ?? "Unknown"}
+                  <span className="ml-2 text-xs text-muted-foreground">{item.categoryName}</span>
+                </span>
+                <span className="font-mono tabular-nums">{formatCurrency(item.amount)}</span>
+              </li>
             ))}
-          </CardContent>
-        </Card>
+          </ul>
+        </section>
       </div>
 
-      {/* "Other" catch-all drill-down — the single biggest leak in most users'
-          discretionary report is misclassified items in the Other bucket
-          (business expenses, debt payments, taxes, tolls). Surface them with
-          inline recategorization so the user can knock them out in one sitting. */}
+      {/* The "Other" catch-all hides things that belong in a real category.
+          It isn't counted as discretionary, so filing these properly fixes
+          the category totals rather than the number above. */}
       {data.otherCategoryItems.length > 0 && (
-        <Card className="border-amber-200 dark:border-amber-800">
-          <CardHeader>
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-600" />
-              &quot;Other&quot; bucket — last 30 days
-              <span className="text-xs font-normal text-muted-foreground">
-                · {formatCurrency(data.otherCategoryTotal)} across {data.otherCategoryItems.length} txn{data.otherCategoryItems.length !== 1 ? "s" : ""}
-              </span>
-            </CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">
-              The catch-all category usually hides misclassified items. Recategorize the suggested ones to a real
-              category and your discretionary number will drop accordingly. Click the badge to change.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-1">
+        <section className="space-y-3">
+          <SectionHead
+            title="Filed under Other"
+            sub={`${formatCurrency(data.otherCategoryTotal)} across ${data.otherCategoryItems.length} in the last 30 days. Tap the badge to give each one a real category.`}
+          />
+          <ul className="divide-y divide-border rounded-xl border border-border bg-card">
             {data.otherCategoryItems.map((item) => {
               const suggestion = suggestRecategorization(item.merchant);
               return (
-                <div
-                  key={item.id}
-                  className="flex items-center justify-between gap-3 py-2 border-b border-border last:border-0"
-                >
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <span className="text-xs text-muted-foreground shrink-0 w-12">{shortDate(item.date)}</span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{item.merchant ?? "Unknown"}</p>
-                      {suggestion && (
-                        <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5">
-                          → likely belongs in <strong>{suggestion}</strong>
-                        </p>
-                      )}
-                    </div>
+                <li key={item.id} className="px-4 py-2.5">
+                  <div className="flex items-baseline gap-3">
+                    <span className="w-12 shrink-0 text-xs text-muted-foreground">{shortDate(item.date)}</span>
+                    <span className="flex-1 min-w-0 truncate text-sm font-medium">{item.merchant ?? "Unknown"}</span>
+                    <span className="font-mono tabular-nums text-sm">{formatCurrency(item.amount)}</span>
                   </div>
-                  <div className="flex items-center gap-3 shrink-0">
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 pl-[3.75rem]">
                     <CategorySelect
                       transactionId={item.id}
-                      currentCategory={{
-                        name: item.categoryName,
-                        color: item.categoryColor,
-                        icon: null,
-                      }}
+                      currentCategory={{ name: item.categoryName, color: item.categoryColor, icon: null }}
                       categories={categories}
                     />
-                    <span className="text-sm font-medium tabular-nums w-20 text-right">
-                      {formatCurrency(item.amount)}
-                    </span>
+                    {suggestion && <span className="text-xs text-amber-500">probably {suggestion}</span>}
                   </div>
-                </div>
+                </li>
               );
             })}
-          </CardContent>
-        </Card>
+          </ul>
+        </section>
       )}
 
-      {/* How this is computed */}
-      <Card className="border-blue-200 bg-blue-50/40 dark:bg-blue-950/20 dark:border-blue-900">
-        <CardContent className="pt-5">
-          <p className="text-sm font-medium">How is this categorized?</p>
-          <p className="text-sm text-muted-foreground mt-1">
-            <strong>No AI involved.</strong> This list is auto-derived from a fixed set of category names
-            (Restaurants, Coffee &amp; Cafes, Entertainment, Vape &amp; Tobacco, Adult Content, Peer-to-Peer,
-            Other, Books, Clothing, Shopping, etc.). To adjust:
+      <Aside title="How this is counted">
+        <p>
+          Discretionary is every purchase in Restaurants, Coffee &amp; Cafes, Entertainment, Vape &amp; Tobacco, Peer-to-Peer,
+          Books, Clothing, Shopping and the like. Tag a purchase <code className="text-xs bg-muted px-1 rounded">#essential</code> to
+          leave it out, or <code className="text-xs bg-muted px-1 rounded">#frivolous</code> to count it.
+        </p>
+        {!data.isVolatile && (
+          <p>
+            Cutting it in half frees about {formatCurrency(Math.round(data.monthlyProjection / 2))} a month for the debts.
           </p>
-          <ul className="text-sm text-muted-foreground mt-2 ml-4 list-disc space-y-1">
-            <li>Recategorize a transaction so it lands in (or out of) one of those categories</li>
-            <li>Tag a single transaction <code className="text-xs bg-muted px-1 rounded">#essential</code> to force-exclude it</li>
-            <li>Tag a single transaction <code className="text-xs bg-muted px-1 rounded">#frivolous</code> to force-include it</li>
-          </ul>
-        </CardContent>
-      </Card>
-
-      {/* Actionable Insight */}
-      <Card className="border-red-200 bg-red-50 dark:bg-red-950/20 dark:border-red-800">
-        <CardContent className="pt-5">
-          <p className="text-sm font-medium">Cutting Discretionary Spending</p>
-          {data.isVolatile ? (
-            <p className="text-sm text-muted-foreground mt-1">
-              {formatCurrency(data.total)} flagged in the last {data.daysInWindow} day
-              {data.daysInWindow !== 1 ? "s" : ""}. Run-rate projection waits until you have at least
-              7 days of data so a single outlier doesn&apos;t skew the number.
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground mt-1">
-              At your current pace ({formatCurrency(data.monthlyProjection)}/mo), eliminating all discretionary spending
-              would free {formatCurrency(data.annualProjection)}/yr. Cutting just 50% adds {formatCurrency(Math.round(data.monthlyProjection / 2))}/month
-              toward the monthly gap or debt.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+        )}
+      </Aside>
     </div>
   );
 }
