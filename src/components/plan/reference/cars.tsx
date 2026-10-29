@@ -127,7 +127,7 @@ export function CarsSection({ data }: { data: CarsData }) {
 
       <Aside tone="warn" title="Both October payments were late">
         <p>
-          Both Bridgecrest payments were due on 16 October and were paid on 29 October. November&apos;s are due on the 16th.
+          Both Bridgecrest payments were due on 16 October and are scheduled for 29 October; neither has shown up in the bank yet. Lenders report a payment late to the bureaus once it is 30 days past due, so they need to post by 15 November. November&apos;s are due on the 16th.
         </p>
       </Aside>
 
