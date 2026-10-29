@@ -15,6 +15,8 @@ import {
   PiggyBank,
   FileBarChart,
   CalendarDays,
+  CalendarClock,
+  Landmark,
   Receipt,
   Scissors,
   Smartphone,
@@ -29,7 +31,12 @@ type Item = { href: string; label: string; icon?: LucideIcon; children?: Array<{
 type Section = { label?: string; items: Item[] };
 
 const sections: Section[] = [
-  { items: [{ href: "/", icon: LayoutDashboard, label: "Dashboard" }] },
+  {
+    items: [
+      { href: "/", icon: LayoutDashboard, label: "This month" },
+      { href: "/next", icon: CalendarClock, label: "Next month" },
+    ],
+  },
   {
     label: "Our plan",
     items: [
@@ -59,6 +66,7 @@ const sections: Section[] = [
   {
     label: "Money",
     items: [
+      { href: "/balances", icon: Landmark, label: "Balances" },
       { href: "/transactions", icon: ArrowLeftRight, label: "Transactions" },
       { href: "/reports", icon: FileBarChart, label: "Reports" },
       { href: "/schedule", icon: CalendarDays, label: "Schedule" },

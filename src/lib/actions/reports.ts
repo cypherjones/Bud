@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { db, schema } from "@/lib/db";
-import { eq, and, gte, lte, desc, sql, like, notInArray } from "drizzle-orm";
+import { eq, and, gte, lte, desc, sql, notInArray } from "drizzle-orm";
 import { getInternalCategoryIds, getExcludedAccountIds } from "./dashboard";
 import { normalizeMerchantKey, cleanMerchantDisplay } from "@/lib/utils/merchant";
 import { inferMonthlyCost, type Charge } from "@/lib/utils/cadence";
@@ -273,22 +273,32 @@ const NON_SUBSCRIPTION_GROUPS = new Set(["Housing", "Financial", "Internal", "In
 
 export const getSubscriptionAudit = cache(_getSubscriptionAudit);
 function _getSubscriptionAudit() {
-  // Get transactions tagged #recurring, joined to category-group so we can
-  // drop non-subscription categories before normalization.
+  // Candidates are the last 120 days of charges in the Subscriptions &
+  // Software group. (This used to read transactions tagged #recurring, a
+  // tag last applied in April 2026 — so every row aged past the 60-day
+  // staleness cutoff and the audit, and the kill list with it, went empty.)
+  const since = new Date();
+  since.setDate(since.getDate() - 120);
+  const sinceStr = since.toISOString().split("T")[0];
+  const excludedAccounts = getExcludedAccountIds();
   const recurring = db
     .select({
+      id: schema.transactions.id,
       merchant: schema.transactions.merchant,
       amount: schema.transactions.amount,
       date: schema.transactions.date,
       categoryName: schema.categories.name,
       groupName: schema.categoryGroups.name,
     })
-    .from(schema.transactionTags)
-    .innerJoin(schema.tags, eq(schema.transactionTags.tagId, schema.tags.id))
-    .innerJoin(schema.transactions, eq(schema.transactionTags.transactionId, schema.transactions.id))
+    .from(schema.transactions)
     .leftJoin(schema.categories, eq(schema.transactions.categoryId, schema.categories.id))
     .leftJoin(schema.categoryGroups, eq(schema.categories.groupId, schema.categoryGroups.id))
-    .where(and(eq(schema.tags.name, "recurring"), eq(schema.transactions.type, "expense")))
+    .where(and(
+      eq(schema.transactions.type, "expense"),
+      gte(schema.transactions.date, sinceStr),
+      eq(schema.categoryGroups.name, "Subscriptions & Software"),
+      excludedAccounts.length > 0 ? notInArray(schema.transactions.accountId, excludedAccounts) : undefined,
+    ))
     .orderBy(desc(schema.transactions.amount))
     .all();
 
@@ -328,17 +338,8 @@ function _getSubscriptionAudit() {
   const normalizeMerchant = normalizeMerchantKey;
   const cleanDisplayName = cleanMerchantDisplay;
 
-  // Filter out internal/transfer categories from subscription list
-  const internalIds = getInternalCategoryIds();
-
-  // Get all recurring transaction IDs with cancel status
-  const recurringTxIds = db
-    .select({ transactionId: schema.transactionTags.transactionId, merchant: schema.transactions.merchant })
-    .from(schema.transactionTags)
-    .innerJoin(schema.tags, eq(schema.transactionTags.tagId, schema.tags.id))
-    .innerJoin(schema.transactions, eq(schema.transactionTags.transactionId, schema.transactions.id))
-    .where(eq(schema.tags.name, "recurring"))
-    .all();
+  // Same rows, keyed for the tag-flag passes below.
+  const recurringTxIds = recurring.map((r) => ({ transactionId: r.id, merchant: r.merchant }));
 
   // Group charges by normalized merchant, then call inferMonthlyCost (in
   // @/lib/utils/cadence) to derive a cadence-aware monthly figure. Replaces

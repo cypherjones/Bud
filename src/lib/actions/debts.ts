@@ -698,8 +698,9 @@ export type DebtDeadline = {
 
 /**
  * Active debts with a next_action_deadline within `withinDays` days from
- * today (default 14). Past-due deadlines are also included so the user
- * can't ignore them. Sorted by deadline ascending.
+ * today (default 14). Deadlines up to 14 days past due are included so the
+ * user can't ignore them; anything older is a stale note, not an alert, and
+ * is left to the /debts page. Sorted by deadline ascending.
  */
 export const getUpcomingDebtDeadlines = cache(_getUpcomingDebtDeadlines);
 function _getUpcomingDebtDeadlines(withinDays: number = 14): DebtDeadline[] {
@@ -717,12 +718,13 @@ function _getUpcomingDebtDeadlines(withinDays: number = 14): DebtDeadline[] {
 
   const now = Date.now();
   const horizonMs = now + withinDays * 86400000;
+  const staleMs = now - 14 * 86400000;
   const out: DebtDeadline[] = [];
   for (const d of debts) {
     if (d.status !== "active") continue;
     if (!d.deadline || d.amount === null || d.amount === undefined) continue;
     const t = new Date(d.deadline + "T00:00:00").getTime();
-    if (t > horizonMs) continue;
+    if (t > horizonMs || t < staleMs) continue;
     const daysAway = Math.ceil((t - now) / 86400000);
     out.push({
       debtId: d.id,

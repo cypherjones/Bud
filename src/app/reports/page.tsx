@@ -17,7 +17,8 @@ import { eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportsPage() {
+export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const { tab } = await searchParams;
   const activeMonth = getActiveReportingMonth();
 
   // Monthly Summary, Spending-by-Day, and Frivolous accept a startDate / monthStart
@@ -67,6 +68,7 @@ export default async function ReportsPage() {
           <EmptyMonthBanner reason={activeMonth.fallbackReason} />
         )}
         <ReportTabs
+          initialTab={tab}
           monthlySummary={monthlySummary}
           velocity={velocity}
           subscriptions={subscriptions}

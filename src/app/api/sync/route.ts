@@ -3,6 +3,7 @@ import { db, schema } from "@/lib/db";
 import { decrypt } from "@/lib/utils/crypto";
 import { authenticateRequest, unauthorizedResponse } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { rollRecurringForward } from "@/lib/actions/recurring";
 
 export const runtime = "nodejs";
 
@@ -48,6 +49,9 @@ export async function POST(req: Request) {
       errors.push(`${connection.name}: ${message}`);
     }
   }
+
+  // New rows may have landed; move the schedule's dates and last-seen marks along.
+  rollRecurringForward();
 
   return Response.json({
     success: errors.length === 0,

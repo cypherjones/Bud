@@ -13,6 +13,8 @@ import type { MoveReadiness } from "@/lib/actions/move-readiness";
 import type { CreditTrajectory } from "@/lib/actions/credit-trajectory";
 
 type Props = {
+  /** Tab to open first; the home page links straight to "subscriptions". */
+  initialTab?: string;
   monthlySummary: {
     expenses: number;
     income: number;
@@ -117,7 +119,7 @@ type Props = {
 
 export function ReportTabs(props: Props) {
   return (
-    <Tabs defaultValue="move" className="space-y-6">
+    <Tabs defaultValue={props.initialTab ?? "move"} className="space-y-6">
       <TabsList className="flex-wrap h-auto gap-1">
         <TabsTrigger value="move">Move Readiness</TabsTrigger>
         <TabsTrigger value="credit-traj">Credit Trajectory</TabsTrigger>

@@ -323,3 +323,34 @@ export function taxPlan2026(t: TaxInputs, bonusGross: number, irsBalance: number
 
   return { agi, returnRows, comparison, scenarios, w4Options, withheld, irsBalance };
 }
+
+/**
+ * The plan against this month's transactions. Only lines that are the sole
+ * line on a category can be compared (the same rule the budget editor uses
+ * for its "Spent" column); everything else is planned but untracked.
+ * `spendByCategory` is cents per category, as getMonthSpendByCategory returns.
+ */
+export function planVsActual(lines: HouseholdLine[], income: Income, spendByCategory: Record<string, number>) {
+  const perCategory = new Map<string, number>();
+  for (const l of lines) if (l.categoryId) perCategory.set(l.categoryId, (perCategory.get(l.categoryId) ?? 0) + 1);
+
+  const tracked: Array<{ id: string; label: string; planned: number; spent: number; over: number }> = [];
+  for (const l of lines) {
+    if (!l.categoryId || perCategory.get(l.categoryId) !== 1) continue;
+    const planned = lineAmount(l, income);
+    const spent = (spendByCategory[l.categoryId] ?? 0) / 100;
+    tracked.push({ id: l.id, label: l.label, planned, spent, over: Math.max(0, spent - planned) });
+  }
+  const plannedTracked = tracked.reduce((s, t) => s + t.planned, 0);
+  const spentTracked = tracked.reduce((s, t) => s + t.spent, 0);
+  const overLines = tracked.filter((t) => t.over > 0).sort((a, b) => b.over - a.over);
+  return {
+    tracked,
+    trackedCount: tracked.length,
+    lineCount: lines.length,
+    plannedTracked,
+    spentTracked,
+    overLines,
+    overTotal: overLines.reduce((s, t) => s + t.over, 0),
+  };
+}

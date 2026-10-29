@@ -186,7 +186,7 @@ export function SubscriptionAudit({ data }: Props) {
               </span>
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-1">
-              These were tagged #recurring but haven&apos;t hit your bank statement recently.
+              These charged before but haven&apos;t hit a synced account in the last 60 days.
               Most likely already cancelled or one-offs that were mis-tagged. Confirm and untag.
             </p>
           </CardHeader>

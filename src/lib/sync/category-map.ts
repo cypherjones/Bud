@@ -70,14 +70,38 @@ const MERCHANT_PATTERNS: [RegExp, string][] = [
   [/\btarget\b/i, "Groceries"],
   [/buc\s*ee/i, "Groceries"],
   // Convenience stores — regional chains commonly miscategorized to "Other"
-  [/honey\s*farms|wawa|sheetz|7[\s-]?eleven|quiktrip|race\s*trac|circle\s*k|cumberland\s*farms/i, "Groceries"],
+  [/honey\s*farms|wawa|sheetz|7[\s-]?eleven|cumberland\s*farms/i, "Groceries"],
+  [/costco\s*gas/i, "Gas & Fuel"],
+  [/costco/i, "Groceries"],
+
+  // === HOUSEHOLD PLAN LINES (Oct 2026) ===
+  // These land in the exact categories the plan lines track, so the budget
+  // page and the dashboard compare like with like.
+  [/stephanie burger/i, "Housing"], // Rent — 100 Harbour Town Dr
+  [/entergy|georgia power|power company|electric|hays montgomery|\bmud\b|water/i, "Utilities"],
+  [/comcast|xfinity|spectrum|tachus|optimum/i, "Internet"],
+  [/\bat\s*&?\s*t\b|at t bill|verizon|t-mobile/i, "Phone"],
+  [/promise land|daycare|kindercare|childcare/i, "Kids & Childcare"],
+  [/petco|pettable|chewy|petsmart/i, "Pets"],
+  [/rare carat/i, "Loan Payment"], // ring lease
+  [/^irs\b/i, "Taxes"],
+  [/interest charge|late fee/i, "Late Fees & Interest"],
+  [/discount tire|o'?reilly auto|autozone|jiffy lube|firestone|pep boys/i, "Car Care"],
+  [/\bcvs\b|walgreens|capsule pharmacy/i, "Pharmacy"],
+  [/home depot|lowe'?s/i, "Home & Garden"],
+  [/^capital one\s+capital one$/i, "Debt Payment"], // card payment from 360 Checking
+  [/applecard|apple credit card|gs\s*bank/i, "Debt Payment"],
+  [/^chime\s+chime$/i, "Transfers"], // moving money to the Chime account
+  [/coffee|mcdonald|tapatia|tutti frutti|365 retail|mcalister|enchilada|chipotle|wendy'?s|taco bell|sonic drive/i, "Restaurants"],
+  [/linkedin/i, "Subscriptions"],
+  [/granola inc|livingwriter/i, "SaaS & Dev Tools"],
 
   // Restaurants — merged category (was split into Restaurants/Dining/Fast Food).
   // All eating-out merchants now route here regardless of cuisine/format.
   [/\buchi\b|hopdoddy|polvos|sombrero|mint thai|kura|caffvino|josephines|la la land|starbucks|thesis/i, "Restaurants"],
 
-  // Transport / Gas
-  [/\bmurphy\b|exxon|shell|chevron|marathon|buc-ee/i, "Transport"],
+  // Gas — the plan's "Fuel" line tracks Gas & Fuel; tolls stay in Transport.
+  [/\bmurphy\b|exxon|shell|chevron|marathon|buc-ee|quiktrip|race\s*trac|circle\s*k|valero|texaco/i, "Gas & Fuel"],
   [/car wash/i, "Transport"],
   // Toll roads (HCTRA = Houston, EZPass / FasTrak / SunPass = various states)
   [/hctra|ez\s?pass|ezpass|fastrak|sunpass|\btoll(s|way)?\b/i, "Transport"],
@@ -127,11 +151,12 @@ const MERCHANT_PATTERNS: [RegExp, string][] = [
   // Streaming/AI/Cloud/etc. fall through to this bucket — user re-categorizes
   // those manually since we can't tell which Apple service is which from the
   // bank string alone.
-  [/amazon prime|coinbase|robinhood|rocket lawyer|crunchyroll/i, "Subscriptions"],
+  [/amazon prime|coinbase|robinhood|rocket lawyer|crunchyroll|target circle/i, "Subscriptions"],
+  [/^apple\s+apple$/i, "Subscriptions"], // bare App Store line
+  [/^amazon\b/i, "Shopping"],
 
-  // Bills & Utilities
-  [/georgia power|power company|electric|water|gas co|at&t|\bat\b.*mobile|verizon|t-mobile|comcast|spectrum|xfinity/i, "Bills & Utilities"],
-  [/next insur|renters.*ins|condo ins/i, "Bills & Utilities"],
+  // Insurance
+  [/next insur|renters.*ins|condo ins|lemonade/i, "Insurance"],
 
   // Housing — Flex (FLEXIBLE FINANCE INC) is a rent-installment service, not a loan
   [/rent|mortgage|apartment|property mgmt|flexible finance/i, "Housing"],
@@ -157,7 +182,7 @@ const MERCHANT_PATTERNS: [RegExp, string][] = [
   [/black walnut|barnab|common bond|conroe lake|goat city|jus mac|greaks|froberg|emma.s pub/i, "Restaurants"],
 
   // Additional gas
-  [/shell|circle k|racetrac|\bqt\b/i, "Gas & Fuel"],
+  [/\bqt\b/i, "Gas & Fuel"],
 
   // Other recurring services that didn't fit cleanly above
   [/experian/i, "SaaS & Dev Tools"], // credit monitoring — closest fit
@@ -177,7 +202,10 @@ const MERCHANT_PATTERNS: [RegExp, string][] = [
 
 /** Patterns applied only when the transaction is income (positive cash inflow). */
 const INCOME_PATTERNS: [RegExp, string][] = [
-  [/\bpayroll\b|direct dep|paycheck/i, "Paycheck"],
+  [/\bpayroll\b|direct dep|paycheck|navusoft/i, "Paycheck"],
+  [/^deposit\s+deposit$/i, "Paycheck"], // Navy Federal renders Navusoft's second deposit as a bare "Deposit"
+  [/capital one bank/i, "Owner's Draw"], // Meridian draw — closed Oct 2026, kept so history stays right
+  [/simon jones|frank merz|april graybill/i, "Income"], // rent share and April's contribution
   [/mypay/i, "Cash Advance"],
   [/interest (paid|earned|credit)/i, "Income"],
   // bare "C - Deposit" is how Chime renders Navusoft direct-deposit lines
