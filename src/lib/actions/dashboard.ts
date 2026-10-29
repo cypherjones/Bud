@@ -68,7 +68,7 @@ function getMonthStart(): string {
 }
 
 function getToday(): string {
-  return new Date().toISOString().split("T")[0];
+  return new Date().toLocaleDateString("en-CA");
 }
 
 /**
@@ -180,7 +180,7 @@ function _getMetrics() {
   const t30Start = new Date();
   t30Start.setDate(t30Start.getDate() - 30);
   const t30StartStr = t30Start.toISOString().split("T")[0];
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = new Date().toLocaleDateString("en-CA");
   const trailingIncome = db
     .select({ total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)` })
     .from(schema.transactions)

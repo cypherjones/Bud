@@ -639,7 +639,7 @@ function _getBudgetStrategy(): BudgetStrategy {
   // Trough catches the cash crunch BEFORE it hits. EOM is a peak; the dangerous
   // dip is between today and the next paycheck (e.g. May 11 trough at $778
   // before Meridian May 12 lands). Surface it loudly.
-  const pulseTodayStr = new Date().toISOString().split("T")[0];
+  const pulseTodayStr = new Date().toLocaleDateString("en-CA");
   const next7Days = cashFlow.data
     .filter((d) => d.isProjected && d.date > pulseTodayStr)
     .slice(0, 7);

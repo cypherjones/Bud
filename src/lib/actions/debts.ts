@@ -973,7 +973,7 @@ export const getRecentLateFees = cache((): number => {
   const t30 = new Date();
   t30.setDate(t30.getDate() - 30);
   const t30Str = t30.toISOString().split("T")[0];
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = new Date().toLocaleDateString("en-CA");
 
   const row = db
     .select({ total: sql<number>`COALESCE(SUM(${schema.transactions.amount}), 0)` })

@@ -10,7 +10,6 @@ import {
   Trash2,
   GripHorizontal,
   Pencil,
-  Home,
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -170,12 +169,6 @@ function TriageRow({ item, onChange }: { item: CreditTriageItem; onChange: () =>
             <Badge variant="outline" className={`${statusMeta.tone} text-[10px]`}>
               {statusMeta.label}
             </Badge>
-            {item.moveRelevant && (
-              <Badge variant="outline" className="bg-orange-500/15 text-orange-400 border-orange-500/30 text-[10px]">
-                <Home className="w-3 h-3 mr-1" />
-                rental check
-              </Badge>
-            )}
             {item.duplicateOfId && (
               <Badge variant="outline" className="bg-red-500/15 text-red-400 border-red-500/30 text-[10px]">
                 duplicate
@@ -359,7 +352,7 @@ function EditCreditItemDialog({
   const [accountLast4, setAccountLast4] = useState(item.accountLast4 ?? "");
   const [balanceDollars, setBalanceDollars] = useState((item.balanceCents / 100).toString());
   const [firstDelinquencyDate, setFirstDelinquencyDate] = useState(item.firstDelinquencyDate ?? "");
-  const [moveRelevant, setMoveRelevant] = useState(item.moveRelevant);
+  const moveRelevant = item.moveRelevant;
   const [notes, setNotes] = useState(item.notes ?? "");
   const [submitting, setSubmitting] = useState(false);
 
@@ -446,17 +439,6 @@ function EditCreditItemDialog({
             <p className="text-[10px] text-muted-foreground mt-0.5">
               Drives SoL (TX 4-yr) and 7-year fall-off date.
             </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id={`move-${item.id}`}
-              checked={moveRelevant}
-              onChange={(e) => setMoveRelevant(e.target.checked)}
-            />
-            <label htmlFor={`move-${item.id}`} className="text-xs">
-              Likely to show on Houston rental background check
-            </label>
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Notes</label>

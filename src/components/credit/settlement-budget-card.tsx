@@ -155,10 +155,9 @@ export function SettlementBudgetCard({ summary }: Props) {
         </div>
 
         {/* Quick math */}
-        <div className="grid grid-cols-3 gap-2 pt-3 border-t border-border">
+        <div className="grid grid-cols-2 gap-2 pt-3 border-t border-border">
           <Stat label="Charge-offs" value={formatCurrency(summary.chargeOffBalance)} />
           <Stat label="Collections" value={formatCurrency(summary.collectionBalance)} />
-          <Stat label="Active debt" value={formatCurrency(summary.activeBalance)} />
         </div>
       </CardContent>
     </Card>

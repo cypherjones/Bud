@@ -245,7 +245,7 @@ export async function buildFinancialContext(): Promise<FinancialContext> {
 }
 
 export function buildSystemPrompt(context: FinancialContext): string {
-  const today = new Date().toISOString().split("T")[0];
+  const today = new Date().toLocaleDateString("en-CA");
 
   return `You are Bud, a direct financial strategist. You don't do fluff.
 

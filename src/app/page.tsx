@@ -25,6 +25,7 @@ import {
   getUpcomingBillCluster,
 } from "@/lib/actions/dashboard";
 import { getSpendingVelocity } from "@/lib/actions/reports";
+import { logSeenDebtPayments } from "@/lib/debts/seen-payments";
 import { getSubscriptionToDo } from "@/lib/subscriptions/view";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +33,7 @@ export const dynamic = "force-dynamic";
 export default function ThisMonthPage() {
   // The plan is the budget; this page is what actually happened against it.
   rollRecurringForward();
+  logSeenDebtPayments();
   const { config, lines } = loadPlan();
   const planTotals = budgetTotals(lines, config.income);
   const actual = planVsActual(lines, config.income, getMonthSpendByCategory());

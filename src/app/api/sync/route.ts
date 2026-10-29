@@ -4,6 +4,7 @@ import { decrypt } from "@/lib/utils/crypto";
 import { authenticateRequest, unauthorizedResponse } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { rollRecurringForward } from "@/lib/actions/recurring";
+import { logSeenDebtPayments } from "@/lib/debts/seen-payments";
 
 export const runtime = "nodejs";
 
@@ -52,6 +53,7 @@ export async function POST(req: Request) {
 
   // New rows may have landed; move the schedule's dates and last-seen marks along.
   rollRecurringForward();
+  logSeenDebtPayments();
 
   return Response.json({
     success: errors.length === 0,

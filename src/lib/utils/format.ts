@@ -38,8 +38,8 @@ export function now(): string {
 }
 
 /**
- * Get current ISO date (YYYY-MM-DD)
+ * Today as YYYY-MM-DD in local time (the container runs on Central time; UTC would turn over at 7pm)
  */
 export function today(): string {
-  return new Date().toISOString().split("T")[0];
+  return new Date().toLocaleDateString("en-CA");
 }

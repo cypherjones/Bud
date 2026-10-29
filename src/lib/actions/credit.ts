@@ -37,7 +37,7 @@ export function createCreditScore(input: CreateCreditScoreInput): CreateCreditSc
 
   const id = newId();
   const timestamp = now();
-  const date = input.date ?? new Date().toISOString().split("T")[0];
+  const date = input.date ?? new Date().toLocaleDateString("en-CA");
 
   db.insert(schema.creditScores).values({
     id,

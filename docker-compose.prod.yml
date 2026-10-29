@@ -18,6 +18,8 @@ services:
         required: true
     environment:
       - NODE_ENV=production
+      # Dates are the household's, not the server's: "today" turns over at midnight in Texas.
+      - TZ=America/Chicago
     volumes:
       - ./data:/app/data
     security_opt:

@@ -20,7 +20,7 @@ import {
 import { apiFetch } from "@/lib/client/api";
 
 function todayIso(): string {
-  return new Date().toISOString().split("T")[0];
+  return new Date().toLocaleDateString("en-CA");
 }
 
 export function LogCreditScoreDialog() {
