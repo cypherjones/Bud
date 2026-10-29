@@ -1,6 +1,3 @@
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-
 const B = "text-foreground";
 
 function Src({ href, children }: { href: string; children: React.ReactNode }) {
@@ -28,33 +25,22 @@ function Fact({ q, children }: { q: React.ReactNode; children: React.ReactNode }
 }
 
 const CDCC_ROWS = [
-  { agi: "150,000 or less", rate: "35.0%", one: "1,050", two: "2,100", pos: true },
+  { agi: "150,000 or less", rate: "35.0%", one: "1,050", two: "2,100" },
   { agi: "160,000", rate: "32.3%", one: "970", two: "1,939" },
   { agi: "170,000", rate: "29.6%", one: "889", two: "1,779" },
   { agi: "180,000", rate: "27.0%", one: "809", two: "1,618" },
   { agi: "206,000 or more", rate: "20.0%", one: "600", two: "1,200" },
 ];
 
-const UPE_ROWS = [
-  { label: "Income tax at 22%", value: "1,231" },
-  { label: "Self-employment tax", value: "790" },
-  { label: "Extra child and dependent care credit", value: "45" },
-  { label: "Extra education credit", value: "448" },
-];
+const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 
-export function FilingRules() {
+/** The planner's numbers the rules quote, so the prose never drifts from the math. */
+export type RulesFigures = { agi: number; herEarned: number; cdcc: number; cdccRate: number; llc: number; tuition: number };
+
+export function FilingRules({ agi, herEarned, cdcc, cdccRate, llc, tuition }: RulesFigures) {
+  const llcShare = agi <= 160000 ? 1 : agi >= 180000 ? 0 : (180000 - agi) / 20000;
   return (
-    <Card>
-      <CardContent className="pt-4 space-y-4">
-        <Badge variant="outline" className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30">
-          The rules, with the law behind each one
-        </Badge>
-        <p className="text-sm text-muted-foreground">
-          Every claim below links to the statute or the IRS page it comes from, and to H&amp;R Block’s version where
-          they cover it, so neither of you has to take this page’s word for anything.
-        </p>
-
-        <ul className="flex flex-col gap-5">
+    <ul className="flex flex-col gap-5">
           <Fact q="You are married for all of 2026, not part of it.">
             <p>
               The IRS puts it in one line: “Generally, your filing status is based on your marital status on the last
@@ -140,39 +126,55 @@ export function FilingRules() {
             </p>
           </Fact>
 
-          <Fact q="The childcare credit is now live. It was $0 in September only because April had no earned income.">
+          <Fact
+            q={
+              herEarned > 0
+                ? "The childcare credit is live, because April has earned income."
+                : "The childcare credit needs April to have earned income, and the planner has her at $0."
+            }
+          >
             <p>
-              The credit is capped by the <i>smaller</i> of the two spouses’ earned income. With April at zero the
-              ceiling was zero. <b className={B}>She now earns about $600 a week, so the ceiling is gone</b> and Elijah’s
-              $624 a month of daycare starts buying a credit.
+              The credit is capped by the <i>smaller</i> of the two spouses’ earned income.{" "}
+              {herEarned > 0 ? (
+                <>
+                  With April’s business entered, her earned income is about <b className={B}>{usd(herEarned)}</b>, and the
+                  planner gives a credit of <b className={B}>{usd(cdcc)}</b> at {Math.round(cdccRate * 100)}%.
+                </>
+              ) : (
+                <>
+                  April’s profit is entered as $0 above, so the ceiling is $0 and so is the credit. Her salon chair is
+                  self-employment, and its net profit is earned income: enter it and the credit appears.
+                </>
+              )}
             </p>
             <p>
-              <b className={B}>And the credit got better for 2026.</b> The One Big Beautiful Bill lifted the top rate from
-              35% to 50%. For a joint return the rate holds at <b className={B}>35% up to $150,000 of AGI</b>, then slides
-              down to a 20% floor between $150,000 and $206,000. Expenses are capped at{" "}
+              <b className={B}>The credit got better for 2026.</b> The One Big Beautiful Bill lifted the top rate from 35% to
+              50% for low incomes. For a joint return the rate holds at <b className={B}>35% up to $150,000 of AGI</b>, then
+              slides down to a 20% floor. Expenses are capped at{" "}
               <b className={B}>$3,000 for one qualifying child and $6,000 for two or more</b>.
             </p>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[420px]">
+            <div>
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="py-2 pr-3 text-left font-semibold">Joint AGI</th>
-                    <th className="py-2 px-3 text-right font-semibold">Rate</th>
-                    <th className="py-2 px-3 text-right font-semibold">One child</th>
-                    <th className="py-2 pl-3 text-right font-semibold">Two or more</th>
+                    <th className="py-2 pr-2 text-left font-semibold">Joint AGI</th>
+                    <th className="py-2 px-2 text-right font-semibold">Rate</th>
+                    <th className="py-2 px-2 text-right font-semibold">1 child</th>
+                    <th className="py-2 pl-2 text-right font-semibold">2+</th>
                   </tr>
                 </thead>
                 <tbody>
                   {CDCC_ROWS.map((r) => (
                     <tr key={r.agi} className="border-b border-border last:border-0">
-                      <td className="py-1.5 pr-3 text-foreground">{r.agi}</td>
-                      <td className="py-1.5 px-3 tabular-nums text-right">{r.rate}</td>
-                      <td className={`py-1.5 px-3 tabular-nums text-right ${r.pos ? "text-emerald-400" : ""}`}>{r.one}</td>
-                      <td className={`py-1.5 pl-3 tabular-nums text-right ${r.pos ? "text-emerald-400" : ""}`}>{r.two}</td>
+                      <td className="py-1.5 pr-2 text-foreground">{r.agi}</td>
+                      <td className="py-1.5 px-2 tabular-nums text-right">{r.rate}</td>
+                      <td className="py-1.5 px-2 tabular-nums text-right">{r.one}</td>
+                      <td className="py-1.5 pl-2 tabular-nums text-right">{r.two}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              <p className="mt-1 text-xs">The planner’s AGI is {usd(agi)}.</p>
             </div>
             <p>
               <b className={B}>Elijah qualifies. Neriah probably does not.</b> Care for a child under 13 counts, but school
@@ -180,34 +182,42 @@ export function FilingRules() {
               one qualifying child unless Neriah is under 13 and the $416.67 is care rather than tuition.
             </p>
             <p>
-              <b className={B}>There is a better option than the credit, if work offers it.</b> The dependent care FSA limit
-              rose from $5,000 to <b className={B}>$7,500</b> on 1 January 2026. Your daycare is $7,488 a year, which almost
-              exactly fills it. Run through an FSA it comes out before income tax <i>and</i> before FICA, so at 22% plus
-              7.65% that is about <b className={B}>$2,220 back</b>, against roughly $850 to $1,050 from the credit. You
-              cannot use both on the same dollars, and the FSA reduces the $3,000 cap dollar for dollar.{" "}
-              <b className={B}>Ask Navusoft whether they offer one.</b>
+              <b className={B}>A dependent care FSA can beat the credit, from 2027.</b> The limit rose from $5,000 to{" "}
+              <b className={B}>$7,500</b> on 1 January 2026, and Elijah’s daycare is $7,488 a year. Run through an FSA it
+              comes out before income tax <i>and</i> FICA, about 22% plus 7.65%, so roughly{" "}
+              <b className={B}>$2,220 back</b> against about $1,050 from the credit. You cannot use both on the same
+              dollars. Marriage allowed a mid-year election only within 30 days of 7 September, and that window has closed,
+              so the next chance is <b className={B}>Navusoft’s open enrollment for 2027</b>: ask whether they offer one.
+              The FSA is also capped at the lower earner’s earned income, so it needs April’s salon profit on the return too.
             </p>
             <Sources>
               <Src href="https://www.irs.gov/publications/p503">Publication 503</Src> ·{" "}
               <Src href="https://www.law.cornell.edu/uscode/text/26/21">26 U.S.C. §21</Src> ·{" "}
+              <Src href="https://www.law.cornell.edu/uscode/text/26/129">26 U.S.C. §129</Src> ·{" "}
               <Src href="https://www.mercer.com/en-us/insights/us-health-news/big-beautiful-bill-permanently-enhances-dependent-care-benefits/">
                 Mercer on the OBBBA changes
               </Src>
             </Sources>
           </Fact>
 
-          <Fact q="Nobody has looked at the education credit, and AJ is enrolled at Harvard Extension.">
+          <Fact q="AJ is enrolled at Harvard Extension, which can mean an education credit.">
             <p>
               The <b className={B}>Lifetime Learning Credit</b> is 20% of up to $10,000 of qualified tuition and fees, so
               up to <b className={B}>$2,000 a year</b>. Unlike the American Opportunity Credit it does not require
               half-time enrolment or a degree programme, and a single course qualifies if it maintains or improves job
-              skills. The ALB in Economics clears that easily.
+              skills.
             </p>
             <p>
-              <b className={B}>The catch is income.</b> For a joint return it phases out between roughly{" "}
-              <b className={B}>$160,000 and $180,000 of MAGI</b> and is gone above that. On a rough 2026 AGI of about
-              $173,000 the credit would be worth roughly <b className={B}>$500 of the $2,000</b>, and every dollar of AGI
-              reduction between those two numbers hands some of it back.
+              <b className={B}>It phases out with income:</b> for a joint return, between{" "}
+              <b className={B}>$160,000 and $180,000 of MAGI</b>. On the planner’s AGI of {usd(agi)}{" "}
+              {llcShare >= 1
+                ? "the credit is not reduced at all."
+                : llcShare <= 0
+                  ? "the credit is gone."
+                  : `the credit is cut to ${Math.round(llcShare * 100)}% of its full amount, and every dollar of AGI reduction hands some back.`}{" "}
+              {tuition > 0
+                ? `With ${usd(tuition)} of tuition entered, it is worth ${usd(llc)}.`
+                : "No tuition is entered yet, so the planner counts $0."}
             </p>
             <p>
               <b className={B}>What to do:</b> get the <b className={B}>Form 1098-T</b> from Harvard Extension for 2026, and
@@ -222,32 +232,25 @@ export function FilingRules() {
             </Sources>
           </Fact>
 
-          <Fact q="The UPE amendment is worth more than it looks, because of where your AGI sits.">
+          <Fact q="Partnership costs he paid personally only count if the agreement made him bear them.">
             <p>
-              Deducting the Meridian software as unreimbursed partnership expense does not just save income tax. It
-              also reduces AGI, and your AGI is sitting inside the phase-out range for <i>both</i> credits above. On{" "}
-              <b className={B}>$5,594 a year</b> of software:
+              Unreimbursed partnership expenses (UPE) go on Schedule E line 28, but only when the operating agreement
+              requires the partner to pay them and the partnership won’t reimburse. Because the deduction lowers AGI it
+              can also lift credits that phase out with income. The second W-4 scenario above prices it from the
+              planner’s inputs; no fixed figure is quoted here because the software costs ran through a business account
+              Bud stopped syncing in June.
             </p>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <tbody>
-                  {UPE_ROWS.map((r) => (
-                    <tr key={r.label} className="border-b border-border">
-                      <td className="py-1.5 pr-3 text-foreground">{r.label}</td>
-                      <td className="py-1.5 tabular-nums text-right text-emerald-400">{r.value}</td>
-                    </tr>
-                  ))}
-                  <tr>
-                    <td className="py-1.5 pr-3 text-foreground font-semibold">Worth, roughly</td>
-                    <td className="py-1.5 tabular-nums text-right text-emerald-400 font-semibold">2,514</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
             <p>
-              Add a home office, the business share of phone and internet, and mileage, and it is larger again. The
-              deadline is <b className={B}>15 March 2027</b> and an extension does not move it.
+              <b className={B}>The deadline is the 1065’s, not the 1040’s.</b> Partners can amend the agreement for a year
+              up to the original due date of the partnership return. If Meridian terminated with the final draw on 27
+              October, that is <b className={B}>15 January 2027</b>; if it is still winding up, 15 March 2027. Confirm with
+              your CPA which applies, and whether amending a closed partnership’s agreement is worth it.
             </p>
+            <Sources>
+              <Src href="https://www.law.cornell.edu/uscode/text/26/761">26 U.S.C. §761(c)</Src> ·{" "}
+              <Src href="https://www.law.cornell.edu/uscode/text/26/6072">26 U.S.C. §6072(b)</Src> ·{" "}
+              <Src href="https://www.irs.gov/instructions/i1065">Form 1065 instructions</Src>
+            </Sources>
           </Fact>
 
           <Fact q="Tithing in cash gets no tax benefit at all. Changing how it’s paid is worth about $440.">
@@ -290,7 +293,7 @@ export function FilingRules() {
               a separate return.
             </p>
             <p>
-              Those are genuine. The table below prices them: the question is whether that protection is worth what it
+              Those are genuine. The joint-or-separate comparison above prices them: the question is whether that protection is worth what it
               costs, given that Form 8379 delivers most of the same refund protection on a joint return for the price
               of one form.
             </p>
@@ -336,8 +339,6 @@ export function FilingRules() {
               </Src>
             </Sources>
           </Fact>
-        </ul>
-      </CardContent>
-    </Card>
+    </ul>
   );
 }

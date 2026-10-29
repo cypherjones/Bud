@@ -37,6 +37,7 @@ const bonusSchema = z.object({
 const taxSchema = z.object({
   // What the user moves on /tax
   herProfit: num(0),
+  // Meridian closed 27 Oct 2026; the bank shows 13 draws of $1,875 from 27 Apr (see /tax)
   guaranteedPayments: num(37500),
   upe: num(0),
   kids: num(3),
@@ -48,6 +49,8 @@ const taxSchema = z.object({
   section125: num(5163),
   k401PerCheck: num(239.32),
   withholdingPerCheck: num(943.59),
+  // Federal withheld year to date, from the last stub. 0 = estimate from the per-check figure.
+  withheldYtd: num(0),
   checksPerYear: num(24),
   // Scenario columns on the W-4 table
   upeIfAmended: num(8400),
