@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   getMonthlySummary,
   getFrivolousSpending,
@@ -16,6 +17,8 @@ export const dynamic = "force-dynamic";
 
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const { tab } = await searchParams;
+  // Subscriptions moved to their own page; old task links still point here.
+  if (tab === "subscriptions") redirect("/subscriptions");
   const activeMonth = getActiveReportingMonth();
 
   const monthlySummary = getMonthlySummary(activeMonth.monthStart);

@@ -232,10 +232,12 @@ function GroupRows({
               <span className="text-[13px]">{l.label}</span>
               {l.note && <span className="block text-[11px] text-muted-foreground">{l.note}</span>}
               {/* Phone: owner and spending sit under the label instead of in columns */}
-              <div className="sm:hidden mt-1 flex items-center gap-2">
-                <OwnerToggle value={l.owner} onChange={(o) => onLine(l.id, { owner: o })} />
+              <div className="sm:hidden mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="shrink-0">
+                  <OwnerToggle value={l.owner} onChange={(o) => onLine(l.id, { owner: o })} />
+                </span>
                 {own !== null && (
-                  <span className={cn("text-[11px] font-mono tabular-nums", own > planned ? "text-red-400" : "text-muted-foreground")}>
+                  <span className={cn("whitespace-nowrap text-[11px] font-mono tabular-nums", own > planned ? "text-red-400" : "text-muted-foreground")}>
                     {usd(own)} spent
                   </span>
                 )}
