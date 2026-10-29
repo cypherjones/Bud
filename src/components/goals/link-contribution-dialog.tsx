@@ -81,7 +81,7 @@ export function LinkContributionDialog({
         render={
           <Button variant="outline" size="sm">
             <Link2 className="w-3.5 h-3.5 mr-1.5" />
-            Link contribution
+            Link a deposit
           </Button>
         }
       />
@@ -89,16 +89,16 @@ export function LinkContributionDialog({
         <DialogHeader>
           <DialogTitle>Link a contribution to {goalName}</DialogTitle>
           <DialogDescription>
-            Income transactions not yet tied to any goal. Savings-account
-            inflows are listed first. Linking adds the amount to the goal&apos;s
-            current saved balance.
+            Deposits into your savings accounts in the last 90 days that
+            aren&apos;t tied to a goal yet. Linking adds the amount to what
+            this goal has saved.
           </DialogDescription>
         </DialogHeader>
 
         <div className="max-h-96 overflow-auto space-y-1.5">
           {sorted.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">
-              No unlinked income transactions on file.
+              No unlinked deposits into savings in the last 90 days.
             </p>
           ) : (
             sorted.map((c) => (

@@ -1,269 +1,306 @@
-import { db, schema } from "@/lib/db";
-import { eq, or } from "drizzle-orm";
-import { formatCurrency } from "@/lib/utils/format";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
-import { Badge } from "@/components/ui/badge";
-import { getGoalContributions, getLinkableTransactions } from "@/lib/actions/goals";
+import Link from "next/link";
+import { PlanPage, SectionHead, TotalsStrip, Total, Aside } from "@/components/plan/plan-ui";
 import { LinkContributionDialog } from "@/components/goals/link-contribution-dialog";
+import { DeleteGoalButton } from "@/components/goals/delete-goal-button";
+import { getSavingsView, type ActiveGoal, type SavingsView } from "@/lib/actions/goals-view";
+import type { AccountBalance } from "@/lib/actions/balances";
+import { formatCurrency, formatCurrencyCompact } from "@/lib/utils/format";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export default async function GoalsPage() {
-  // Read from both financialPlans (savings_goal type) and savingsGoals table
-  const plans = await db
-    .select()
-    .from(schema.financialPlans)
-    .where(
-      or(
-        eq(schema.financialPlans.type, "savings_goal"),
-        eq(schema.financialPlans.type, "custom"),
-      )
-    )
-    .all();
+const day = (d: string) => new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const dayYear = (d: string) => new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+const link = "underline decoration-dotted underline-offset-2";
+const MOVES_SHOWN = 20;
 
-  const savingsGoals = await db.select().from(schema.savingsGoals).all();
+/** "1 day", "3 weeks", "1.4 months" — whichever reads naturally. */
+function coverage(months: number): string {
+  const days = Math.round(months * 30.4);
+  if (days < 14) return `${days} ${days === 1 ? "day" : "days"}`;
+  if (months < 1) return `${Math.round(days / 7)} weeks`;
+  return `${months.toFixed(1)} months`;
+}
 
-  // Combine both into a unified list. Goals can show up in either table
-  // depending on which AI tool created them (create_savings_goal vs.
-  // create_financial_plan with type='savings_goal'). De-dupe by lowercase
-  // name; when a goal exists in both tables, prefer savingsGoals as the
-  // canonical row but inherit the plan's targetDate if the goal lacks one.
-  type Goal = {
-    id: string;
-    name: string;
-    targetAmount: number;
-    currentAmount: number;
-    targetDate: string | null;
-    status: string;
-    source: "plan" | "goal";
-  };
-
-  const byName = new Map<string, Goal>();
-
-  for (const p of plans) {
-    byName.set(p.name.toLowerCase(), {
-      id: p.id,
-      name: p.name,
-      targetAmount: p.targetAmount ?? 0,
-      currentAmount: p.currentSaved,
-      targetDate: p.targetDate,
-      status: p.status,
-      source: "plan",
-    });
-  }
-
-  for (const g of savingsGoals) {
-    const key = g.name.toLowerCase();
-    const existing = byName.get(key);
-    byName.set(key, {
-      id: g.id,
-      name: g.name,
-      targetAmount: g.targetAmount || existing?.targetAmount || 0,
-      currentAmount: g.currentAmount,
-      targetDate: g.targetDate ?? existing?.targetDate ?? null,
-      status: existing?.status ?? "in_progress",
-      source: "goal",
-    });
-  }
-
-  const goals = [...byName.values()];
-  const hasGoals = goals.length > 0;
-
-  // Per-goal contribution detail (only for goals backed by a savings_goals row,
-  // since linked_goal_id references that table).
-  const contributionsByGoal = new Map<string, ReturnType<typeof getGoalContributions>>();
-  for (const g of goals) {
-    if (g.source === "goal") {
-      contributionsByGoal.set(g.id, getGoalContributions(g.id));
-    }
-  }
-  const linkable = hasGoals ? getLinkableTransactions(40) : [];
+export default function SavingsPage() {
+  const v = getSavingsView();
+  const buffer = v.planSpendCents;
+  const short = Math.max(0, buffer - v.savingsCents);
+  const neededPerMonth = v.goals.reduce((s, g) => s + (g.perMonthCents ?? 0), 0);
+  const gap = neededPerMonth - v.planSetAsideCents;
 
   return (
-    <div className="flex flex-col h-full">
-      <header className="px-8 py-6 border-b border-border bg-card/50">
-        <h1 className="text-2xl font-bold tracking-tight">Savings Goals</h1>
-        <p className="text-sm text-muted-foreground">
-          Track progress toward your financial goals
-        </p>
-      </header>
-      <div className="flex-1 overflow-auto p-8 space-y-6">
-        {!hasGoals ? (
-          <Card>
-            <CardContent className="py-12">
-              <div className="text-center space-y-2">
-                <p className="text-sm font-medium text-muted-foreground">
-                  No savings goals yet
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Open Chat and tell Bud what you&apos;re saving for — it&apos;ll
-                  create and track your goals automatically.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {goals.map((goal) => {
-              const pct =
-                goal.targetAmount > 0
-                  ? Math.min(
-                      Math.round((goal.currentAmount / goal.targetAmount) * 100),
-                      100,
-                    )
-                  : 0;
-              const remaining = Math.max(goal.targetAmount - goal.currentAmount, 0);
+    <PlanPage
+      title="Savings"
+      sub={
+        <>
+          What&apos;s in savings today, measured against the household plan on{" "}
+          <Link href="/budget" className={link}>Budget</Link>. A goal shows what it needs each month to land on its date.
+        </>
+      }
+    >
+      <TotalsStrip cols={4}>
+        <Total
+          label="In savings now"
+          value={formatCurrency(v.savingsCents)}
+          note={`across ${v.accounts.length} ${v.accounts.length === 1 ? "account" : "accounts"}`}
+          tone={v.savingsCents < buffer ? "text-amber-400" : "text-emerald-400"}
+        />
+        <Total
+          label="Plan sets aside"
+          value={`${formatCurrencyCompact(v.planSetAsideCents)}/mo`}
+          note={v.planSetAsideCents === 0 ? "Nothing yet. Set it on Budget." : "into savings, on Budget"}
+          tone={v.planSetAsideCents === 0 ? "text-amber-400" : undefined}
+          href="/budget"
+        />
+        <Total
+          label="Months covered"
+          value={v.monthsCovered === null ? "—" : v.monthsCovered < 0.1 ? v.monthsCovered.toFixed(2) : v.monthsCovered.toFixed(1)}
+          note={v.monthsCovered === null ? "The plan has no spending lines" : `about ${coverage(v.monthsCovered)} of plan spending`}
+          tone={v.monthsCovered !== null && v.monthsCovered < 1 ? "text-amber-400" : undefined}
+        />
+        <Total
+          label="Buffer goal"
+          value={formatCurrencyCompact(buffer)}
+          note={short > 0 ? `one month of plan spending. ${formatCurrencyCompact(short)} to go.` : "one month of plan spending. Covered."}
+        />
+      </TotalsStrip>
 
-              return (
-                <Card key={goal.id}>
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-base font-semibold">
-                        {goal.name}
-                      </CardTitle>
-                      <Badge
-                        variant="secondary"
-                        className={
-                          goal.status === "completed"
-                            ? "bg-green-100 text-green-700"
-                            : "bg-blue-100 text-blue-700"
-                        }
-                      >
-                        {goal.status === "completed"
-                          ? "Complete"
-                          : `${pct}%`}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <Progress value={pct} className="h-2" />
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">
-                        {formatCurrency(goal.currentAmount)} saved
-                      </span>
-                      <span className="font-medium">
-                        {formatCurrency(goal.targetAmount)} goal
-                      </span>
-                    </div>
-                    {remaining > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        {formatCurrency(remaining)} to go
-                        {goal.targetDate && (
-                          <>
-                            {" "}
-                            — target:{" "}
-                            {new Date(goal.targetDate + "T00:00:00").toLocaleDateString(
-                              "en-US",
-                              { month: "short", day: "numeric", year: "numeric" },
-                            )}
-                          </>
-                        )}
-                      </p>
-                    )}
-                    {remaining > 0 && goal.targetDate && (
-                      <PaceLine remaining={remaining} targetDate={goal.targetDate} />
-                    )}
-
-                    {goal.source === "goal" && (
-                      <Contributions
-                        goalId={goal.id}
-                        goalName={goal.name}
-                        contributions={contributionsByGoal.get(goal.id) ?? []}
-                        linkable={linkable}
-                      />
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+      <section className="space-y-3">
+        <SectionHead title="Accounts" sub="Savings accounts that are syncing and counted. The same numbers as Balances." />
+        <AccountTable rows={v.accounts} total={v.savingsCents} />
+        {v.notCounted.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Left out: {v.notCounted.map((a) => `${a.name} (${a.syncing ? "excluded from totals" : "feed stopped"})`).join(", ")}.
+          </p>
         )}
-      </div>
+      </section>
+
+      <section className="space-y-3">
+        <SectionHead
+          title="Goals"
+          sub="Per month is what's left to save divided by the whole months until the date. The total is checked against what the plan sets aside."
+        />
+        {v.goals.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No active goals. Tell Bud in Chat what you&apos;re saving for and it will add one.</p>
+        ) : (
+          <GoalTable goals={v.goals} view={v} neededPerMonth={neededPerMonth} />
+        )}
+        {v.goals.length > 0 && gap > 0 && (
+          <Aside tone="warn" title="The plan doesn't fund these dates">
+            Landing every goal on its date takes {formatCurrency(neededPerMonth)} a month into savings. The plan sets aside{" "}
+            {formatCurrency(v.planSetAsideCents)}. Raise &ldquo;Into savings, per month&rdquo; on{" "}
+            <Link href="/budget" className={link}>Budget</Link>, or move the dates.
+          </Aside>
+        )}
+        {v.oldGoals.length > 0 && <OldGoals view={v} />}
+      </section>
+
+      <section className="space-y-3">
+        <SectionHead
+          title="Recent moves in and out of savings"
+          sub={
+            <>
+              Since {day(v.movesSince)}: {formatCurrency(v.inCents)} went in and {formatCurrency(v.outCents)} came back out.
+            </>
+          }
+        />
+        <MovesTable view={v} />
+      </section>
+    </PlanPage>
+  );
+}
+
+function AccountTable({ rows, total }: { rows: AccountBalance[]; total: number }) {
+  if (rows.length === 0) return <p className="text-sm text-muted-foreground">No savings accounts are syncing.</p>;
+  return (
+    <div className="rounded-xl border border-border bg-card px-4 py-3 overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            <th className="py-1 pr-3 text-left font-semibold">Account</th>
+            <th className="py-1 pl-3 text-right font-semibold">Balance</th>
+            <th className="py-1 pl-3 text-right font-semibold">Last activity</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((a) => (
+            <tr key={a.id} className="border-b border-border last:border-b-0">
+              <td className="py-1.5 pr-3">{a.name}</td>
+              <td className={cn("py-1.5 pl-3 text-right font-mono tabular-nums whitespace-nowrap", a.balanceCents < 0 && "text-red-400")}>
+                {formatCurrency(a.balanceCents)}
+              </td>
+              <td className="py-1.5 pl-3 text-right whitespace-nowrap text-[13px] text-muted-foreground">
+                {a.lastActivity ? (a.daysQuiet === 0 ? "today" : a.daysQuiet === 1 ? "yesterday" : `${day(a.lastActivity)} · ${a.daysQuiet}d`) : "none"}
+              </td>
+            </tr>
+          ))}
+          {rows.length > 1 && (
+            <tr className="font-semibold">
+              <td className="pt-2 pr-3 border-t border-border">Total</td>
+              <td className="pt-2 pl-3 text-right font-mono tabular-nums border-t border-border">{formatCurrency(total)}</td>
+              <td className="border-t border-border" />
+            </tr>
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-/**
- * Required-monthly-contribution line shown under each goal that has a target
- * date. Pure math — no contribution-history tracking yet, so we don't try to
- * project "at current pace, you'll hit it on [date]."
- */
-function PaceLine({ remaining, targetDate }: { remaining: number; targetDate: string }) {
-  const target = new Date(targetDate + "T00:00:00");
-  const now = new Date();
-  const monthsRemaining =
-    (target.getFullYear() - now.getFullYear()) * 12 +
-    (target.getMonth() - now.getMonth()) +
-    (target.getDate() >= now.getDate() ? 0 : -1);
+function byDate(g: ActiveGoal): string {
+  if (!g.targetDate) return "no date";
+  if (g.pastDue) return `${dayYear(g.targetDate)}, passed`;
+  return `${dayYear(g.targetDate)}${g.monthsLeft !== null ? ` · ${g.monthsLeft} mo` : ""}`;
+}
 
-  if (monthsRemaining <= 0) {
-    return (
-      <div className="rounded-md bg-red-50/60 dark:bg-red-950/20 px-3 py-2 text-xs text-red-600 dark:text-red-400">
-        Past target date — set a new one or log progress to update.
-      </div>
-    );
-  }
-
-  const requiredPerMonth = Math.ceil(remaining / monthsRemaining);
-  const requiredPerWeek = Math.ceil(requiredPerMonth / 4.345);
-
+function GoalTable({ goals, view, neededPerMonth }: { goals: ActiveGoal[]; view: SavingsView; neededPerMonth: number }) {
+  const th = "py-1 pl-3 text-right font-semibold";
   return (
-    <div className="rounded-md bg-muted/40 px-3 py-2 text-xs space-y-1">
-      <div className="flex items-center justify-between">
-        <span className="text-muted-foreground">Pace to hit target</span>
-        <span className="font-medium">
-          {formatCurrency(requiredPerMonth)}/mo · {formatCurrency(requiredPerWeek)}/wk
-        </span>
-      </div>
-      <p className="text-muted-foreground">
-        {monthsRemaining} {monthsRemaining === 1 ? "month" : "months"} remaining
-      </p>
+    <div className="rounded-xl border border-border bg-card px-4 py-3 overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            <th className="py-1 pr-3 text-left font-semibold">Goal</th>
+            <th className={th}>Target</th>
+            <th className={cn(th, "hidden sm:table-cell")}>Saved</th>
+            <th className={cn(th, "hidden sm:table-cell")}>By</th>
+            <th className={th}>Per month</th>
+          </tr>
+        </thead>
+        <tbody>
+          {goals.map((g) => (
+            <tr key={g.id} className="border-b border-border last:border-b-0 align-top">
+              <td className="py-2 pr-3">
+                <p className="font-medium leading-snug">{g.name}</p>
+                <p className="sm:hidden text-[11px] text-muted-foreground">
+                  {formatCurrency(g.savedCents)} saved · by {byDate(g)}
+                </p>
+                {g.savedFrom === "savings" ? (
+                  <p className="text-[11px] text-muted-foreground leading-snug">
+                    One month of plan spending, so it follows the plan. Everything in savings counts toward it
+                    {g.storedTargetCents !== null && <>. The {formatCurrencyCompact(g.storedTargetCents)} saved on the goal is an old spending average and isn&apos;t used</>}.
+                  </p>
+                ) : (
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                    <span>
+                      {g.contributions.length === 0
+                        ? "No deposits linked yet."
+                        : `${g.contributions.length} linked, latest ${day(g.contributions[0].date)}.`}
+                    </span>
+                    <LinkContributionDialog goalId={g.id} goalName={g.name} candidates={view.linkable} />
+                  </div>
+                )}
+              </td>
+              <td className="py-2 pl-3 text-right font-mono tabular-nums whitespace-nowrap">{formatCurrencyCompact(g.targetCents)}</td>
+              <td className="hidden sm:table-cell py-2 pl-3 text-right font-mono tabular-nums whitespace-nowrap">{formatCurrency(g.savedCents)}</td>
+              <td className={cn("hidden sm:table-cell py-2 pl-3 text-right whitespace-nowrap text-[13px]", g.pastDue ? "text-red-400" : "text-muted-foreground")}>
+                {byDate(g)}
+              </td>
+              <td
+                className={cn(
+                  "py-2 pl-3 text-right font-mono tabular-nums whitespace-nowrap",
+                  g.perMonthCents !== null && g.perMonthCents > view.planSetAsideCents && "text-amber-400",
+                )}
+              >
+                {g.perMonthCents === null ? (g.pastDue ? "date passed" : "—") : formatCurrencyCompact(g.perMonthCents)}
+              </td>
+            </tr>
+          ))}
+          <tr className="font-semibold">
+            <td className="pt-2 pr-3 border-t border-border">Needed a month</td>
+            <td className="pt-2 border-t border-border" />
+            <td className="hidden sm:table-cell border-t border-border" />
+            <td className="hidden sm:table-cell border-t border-border" />
+            <td className="pt-2 pl-3 text-right font-mono tabular-nums border-t border-border">{formatCurrencyCompact(neededPerMonth)}</td>
+          </tr>
+          <tr className="text-muted-foreground">
+            <td className="py-1 pr-3">
+              Plan sets aside, on <Link href="/budget" className={link}>Budget</Link>
+            </td>
+            <td />
+            <td className="hidden sm:table-cell" />
+            <td className="hidden sm:table-cell" />
+            <td
+              className={cn(
+                "py-1 pl-3 text-right font-mono tabular-nums",
+                view.planSetAsideCents < neededPerMonth ? "text-amber-400" : "text-emerald-400",
+              )}
+            >
+              {formatCurrencyCompact(view.planSetAsideCents)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
 
-function shortDate(iso: string): string {
-  return new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+function OldGoals({ view }: { view: SavingsView }) {
+  return (
+    <details className="group rounded-xl border border-border bg-card">
+      <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium">
+        Old goals ({view.oldGoals.length})
+        <span className="ml-2 font-normal text-muted-foreground">Left out of everything above. Delete the ones you&apos;re done with.</span>
+      </summary>
+      <ul className="divide-y divide-border border-t border-border">
+        {view.oldGoals.map((g) => (
+          <li key={g.id} className="flex flex-wrap items-start gap-x-4 gap-y-2 px-4 py-3">
+            <div className="flex-1 min-w-[200px]">
+              <p className="font-medium leading-snug">
+                {g.name}
+                <span className="ml-2 text-xs font-mono tabular-nums text-muted-foreground">
+                  {g.targetCents > 0 ? `${formatCurrencyCompact(g.savedCents)} of ${formatCurrencyCompact(g.targetCents)}` : "no target"}
+                </span>
+              </p>
+              <p className="mt-0.5 text-sm text-muted-foreground leading-snug">{g.reason}</p>
+            </div>
+            <DeleteGoalButton goalId={g.id} goalName={g.name} />
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
 }
 
-function Contributions({
-  goalId,
-  goalName,
-  contributions,
-  linkable,
-}: {
-  goalId: string;
-  goalName: string;
-  contributions: { id: string; date: string; amount: number; description: string; merchant: string | null; accountName: string | null }[];
-  linkable: { id: string; date: string; amount: number; description: string; merchant: string | null; accountName: string | null; accountSubtype: string | null }[];
-}) {
-  const total = contributions.reduce((s, c) => s + c.amount, 0);
-
+function MovesTable({ view }: { view: SavingsView }) {
+  if (view.moves.length === 0) return <p className="text-sm text-muted-foreground">Nothing moved in or out of savings in the last 90 days.</p>;
   return (
-    <div className="border-t border-border pt-3 space-y-2 text-xs">
-      <div className="flex items-center justify-between">
-        <span className="text-muted-foreground">
-          Contributions{" "}
-          <span className="text-foreground font-medium">
-            ({contributions.length} · {formatCurrency(total)})
-          </span>
-        </span>
-        <LinkContributionDialog goalId={goalId} goalName={goalName} candidates={linkable} />
-      </div>
-      {contributions.slice(0, 3).map((c) => (
-        <div key={c.id} className="flex items-center justify-between text-muted-foreground">
-          <span className="truncate">
-            {shortDate(c.date)}
-            {c.accountName ? ` · ${c.accountName}` : ""}
-            {c.merchant ? ` · ${c.merchant}` : ""}
-          </span>
-          <span className="font-medium text-foreground">{formatCurrency(c.amount)}</span>
-        </div>
-      ))}
-      {contributions.length > 3 && (
-        <p className="text-muted-foreground">+{contributions.length - 3} more</p>
-      )}
+    <div className="rounded-xl border border-border bg-card px-4 py-3 overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            <th className="py-1 pr-3 text-left font-semibold">Date</th>
+            <th className="py-1 pr-3 text-left font-semibold">Account</th>
+            <th className="py-1 pl-3 text-right font-semibold">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {view.moves.slice(0, MOVES_SHOWN).map((m) => (
+            <tr key={m.id} className={cn("border-b border-border last:border-b-0", m.direction === "out" && "text-muted-foreground")}>
+              <td className="py-1.5 pr-3 whitespace-nowrap text-[13px] text-muted-foreground">{day(m.date)}</td>
+              <td className="py-1.5 pr-3">
+                {m.accountName}
+                <span className="block text-[11px] text-muted-foreground">
+                  {m.description}
+                  {m.linkedGoalName && <> · linked to {m.linkedGoalName}</>}
+                </span>
+              </td>
+              <td className={cn("py-1.5 pl-3 text-right font-mono tabular-nums whitespace-nowrap", m.direction === "in" && "text-emerald-400")}>
+                {m.direction === "in" ? "+" : "−"}
+                {formatCurrency(m.cents)}
+              </td>
+            </tr>
+          ))}
+          {view.moves.length > MOVES_SHOWN && (
+            <tr>
+              <td colSpan={3} className="pt-2 text-[11px] text-muted-foreground">
+                {view.moves.length - MOVES_SHOWN} older moves since {day(view.movesSince)} are counted above but not listed.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }

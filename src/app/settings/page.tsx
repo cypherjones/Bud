@@ -1,188 +1,136 @@
-"use client";
+import Link from "next/link";
+import { db, schema } from "@/lib/db";
+import { PlanPage, SectionHead, TotalsStrip, Total } from "@/components/plan/plan-ui";
+import { SyncNow, AddSimplefinToken } from "@/components/settings/bank-sync-controls";
+import { getBalances, type AccountBalance } from "@/lib/actions/balances";
+import { bankSyncAllowed, SYNC_REFUSED_MESSAGE } from "./sync-guard";
 
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { RefreshCw, Link2, CheckCircle, Building2, ExternalLink } from "lucide-react";
-import { apiFetch } from "@/lib/client/api";
+export const dynamic = "force-dynamic";
 
-type Connection = {
-  id: string;
-  name: string;
-  lastSynced: string | null;
-  createdAt: string;
-};
+const TZ = "America/Chicago";
+const link = "underline decoration-dotted underline-offset-2";
+
+/** A sync timestamp (UTC ISO) in Central time: "Oct 29, 1:05 PM CDT". */
+const when = (ts: string) =>
+  new Date(ts).toLocaleString("en-US", { timeZone: TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+/** Just the Central-time clock: "1:05 PM CDT". */
+const clock = (ts: string) => new Date(ts).toLocaleTimeString("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+/** The Central-time calendar day of a timestamp: "Jun 2, 2026". */
+const onDay = (ts: string) => new Date(ts).toLocaleDateString("en-US", { timeZone: TZ, month: "short", day: "numeric", year: "numeric" });
 
 export default function SettingsPage() {
-  const [connections, setConnections] = useState<Connection[]>([]);
-  const [setupToken, setSetupToken] = useState("");
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [syncResult, setSyncResult] = useState<string | null>(null);
-  const [connectError, setConnectError] = useState<string | null>(null);
+  const allowed = bankSyncAllowed();
+  const connections = db
+    .select({
+      id: schema.simplefinConnections.id,
+      name: schema.simplefinConnections.name,
+      lastSynced: schema.simplefinConnections.lastSynced,
+      createdAt: schema.simplefinConnections.createdAt,
+    })
+    .from(schema.simplefinConnections)
+    .all();
 
-  const loadConnections = () => {
-    apiFetch("/api/settings/simplefin")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.connections) setConnections(data.connections);
-      })
-      .catch(() => {});
-  };
-
-  useEffect(() => {
-    loadConnections();
-  }, []);
-
-  const handleConnect = async () => {
-    if (!setupToken.trim()) return;
-    setIsConnecting(true);
-    setConnectError(null);
-    try {
-      const res = await apiFetch("/api/settings/simplefin", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ setup_token: setupToken.trim() }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setSetupToken("");
-        loadConnections();
-        handleSync();
-      } else {
-        setConnectError(data.error ?? "Failed to connect");
-      }
-    } catch {
-      setConnectError("Failed to connect — check console for details");
-    } finally {
-      setIsConnecting(false);
-    }
-  };
-
-  const handleSync = async () => {
-    setIsSyncing(true);
-    setSyncResult(null);
-    try {
-      const res = await apiFetch("/api/sync", { method: "POST" });
-      const data = await res.json();
-      if (res.ok) {
-        const parts = [];
-        if (data.new_accounts > 0) parts.push(`${data.new_accounts} new accounts`);
-        if (data.new_transactions > 0) parts.push(`${data.new_transactions} new transactions`);
-        if (data.updated_transactions > 0) parts.push(`${data.updated_transactions} updated`);
-        setSyncResult(parts.length > 0 ? `Synced: ${parts.join(", ")}` : "Everything up to date");
-        if (data.errors) {
-          setSyncResult((prev) => `${prev} (errors: ${data.errors.join("; ")})`);
-        }
-        loadConnections();
-      } else {
-        setSyncResult(`Error: ${data.error}`);
-      }
-    } catch {
-      setSyncResult("Sync failed — check console for details");
-    }
-    setIsSyncing(false);
-  };
+  const accounts = getBalances();
+  const syncing = accounts.filter((a) => a.syncing);
+  const stopped = accounts.filter((a) => !a.syncing).sort((a, b) => (a.lastSynced ?? "").localeCompare(b.lastSynced ?? ""));
+  const lastSync =
+    [...connections.map((c) => c.lastSynced), ...accounts.map((a) => a.lastSynced)].filter((s): s is string => !!s).sort().at(-1) ?? null;
 
   return (
-    <div className="flex flex-col h-full">
-      <header className="px-8 py-6 border-b border-border bg-card/50">
-        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Configure bank sync and preferences
-        </p>
-      </header>
+    <PlanPage title="Settings">
+      <section className="space-y-4">
+        <SectionHead
+          title="Bank sync"
+          sub="The production server pulls from the banks through SimpleFIN. This shows how fresh that is. Times are Central."
+        />
 
-      <div className="flex-1 overflow-auto p-8">
-        <div className="max-w-2xl space-y-6">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <Link2 className="w-4 h-4 text-primary" />
-                  Bank Sync (SimpleFIN)
-                </CardTitle>
-                {connections.length > 0 && (
-                  <Badge variant="secondary" className="bg-green-100 text-green-700">
-                    <CheckCircle className="w-3 h-3 mr-1" />
-                    Connected
-                  </Badge>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {connections.length > 0 && (
-                <div className="space-y-2">
-                  {connections.map((c) => (
-                    <div
-                      key={c.id}
-                      className="flex items-center justify-between rounded-md border px-4 py-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Building2 className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm font-medium">{c.name}</span>
-                      </div>
-                      <Badge variant="outline" className="text-xs text-muted-foreground">
-                        {c.lastSynced
-                          ? `Last synced ${new Date(c.lastSynced).toLocaleString()}`
-                          : "Never synced"}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              )}
+        <TotalsStrip cols={3}>
+          <Total label="Last sync" value={lastSync ? clock(lastSync) : "never"} note={lastSync ? onDay(lastSync) : "No sync has run yet"} />
+          <Total
+            label="Accounts syncing"
+            value={String(syncing.length)}
+            note={`${syncing.filter((a) => a.counted).length} counted in totals, ${syncing.filter((a) => !a.counted).length} excluded`}
+            href="/balances"
+          />
+          <Total
+            label="Stopped feeds"
+            value={String(stopped.length)}
+            note={stopped.length === 0 ? "Every feed is current" : stopped.map((a) => a.name).join(", ")}
+            tone={stopped.length > 0 ? "text-amber-400" : "text-emerald-400"}
+          />
+        </TotalsStrip>
 
-              {connections.length > 0 && (
-                <Button onClick={handleSync} disabled={isSyncing} variant="outline">
-                  <RefreshCw
-                    className={`w-4 h-4 mr-2 ${isSyncing ? "animate-spin" : ""}`}
-                  />
-                  {isSyncing ? "Syncing..." : "Sync All"}
-                </Button>
-              )}
+        <SyncNow allowed={allowed} hasConnection={connections.length > 0} refusedMessage={SYNC_REFUSED_MESSAGE} />
+      </section>
 
-              <div className="space-y-2 pt-2">
-                <p className="text-sm text-muted-foreground">
-                  {connections.length > 0
-                    ? "To add or manage banks, log in to SimpleFIN Bridge. To connect a second SimpleFIN account, paste a new setup token below."
-                    : "Bud syncs transactions through SimpleFIN Bridge ($15/yr). Create an account, connect your banks there, then paste your one-time setup token below. Your bank credentials never touch Bud."}
-                </p>
-                <a
-                  href="https://beta-bridge.simplefin.org"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-                >
-                  Open SimpleFIN Bridge <ExternalLink className="w-3 h-3" />
-                </a>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="password"
-                    value={setupToken}
-                    onChange={(e) => setSetupToken(e.target.value)}
-                    placeholder="Paste SimpleFIN setup token"
-                    className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  />
-                  <Button
-                    onClick={handleConnect}
-                    disabled={isConnecting || !setupToken.trim()}
-                  >
-                    {isConnecting ? "Connecting..." : "Connect"}
-                  </Button>
-                </div>
-                {connectError && (
-                  <p className="text-sm text-red-600">{connectError}</p>
-                )}
-              </div>
+      <section className="space-y-3">
+        <SectionHead title="Connections" sub="Each SimpleFIN account Bud reads. Banks are added and removed inside SimpleFIN Bridge." />
+        {connections.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No SimpleFIN connection yet. Add a token below.</p>
+        ) : (
+          <div className="rounded-xl border border-border bg-card px-4 py-3 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                  <th className="py-1 pr-3 text-left font-semibold">Connection</th>
+                  <th className="py-1 pl-3 text-right font-semibold">Last synced</th>
+                </tr>
+              </thead>
+              <tbody>
+                {connections.map((c) => (
+                  <tr key={c.id} className="border-b border-border last:border-b-0">
+                    <td className="py-1.5 pr-3">
+                      {c.name}
+                      <span className="block text-[11px] text-muted-foreground">Connected {onDay(c.createdAt)}</span>
+                    </td>
+                    <td className="py-1.5 pl-3 text-right whitespace-nowrap text-[13px] text-muted-foreground">
+                      {c.lastSynced ? when(c.lastSynced) : "never"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
-              {syncResult && (
-                <p className="text-sm text-muted-foreground">{syncResult}</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      {stopped.length > 0 && (
+        <section className="space-y-3">
+          <SectionHead
+            title="Stopped feeds"
+            sub={
+              <>
+                These accounts stopped updating while the rest kept syncing. Bud keeps their history and leaves them out of every total.
+                Reconnect or remove them in SimpleFIN Bridge. Live numbers are on <Link href="/balances" className={link}>Balances</Link>.
+              </>
+            }
+          />
+          <div className="divide-y divide-border rounded-xl border border-border bg-card">
+            {stopped.map((a) => (
+              <StoppedRow key={a.id} a={a} live={syncing} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      <AddSimplefinToken allowed={allowed} hasConnection={connections.length > 0} />
+    </PlanPage>
+  );
+}
+
+function StoppedRow({ a, live }: { a: AccountBalance; live: AccountBalance[] }) {
+  const twin = live.some((l) => l.name === a.name && l.kind === a.kind);
+  return (
+    <div className="px-4 py-3 text-sm">
+      <p className="font-medium leading-snug">{a.name}</p>
+      <p className="mt-0.5 text-muted-foreground leading-snug">
+        {a.lastSynced ? `Last update ${onDay(a.lastSynced)}.` : "Never updated."}{" "}
+        {twin
+          ? `A second ${a.name} feed is still syncing, so this one is a leftover duplicate.`
+          : a.counted
+            ? "Its last balance is history, not today's number."
+            : "It was already excluded from totals."}
+      </p>
     </div>
   );
 }

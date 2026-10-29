@@ -5,6 +5,7 @@ import { authenticateRequest, unauthorizedResponse } from "@/lib/auth";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { rollRecurringForward } from "@/lib/actions/recurring";
 import { logSeenDebtPayments } from "@/lib/debts/seen-payments";
+import { bankSyncAllowed, SYNC_REFUSED_MESSAGE } from "@/app/settings/sync-guard";
 
 export const runtime = "nodejs";
 
@@ -13,6 +14,9 @@ export async function POST(req: Request) {
 
   const rateLimited = checkRateLimit(req);
   if (rateLimited) return rateLimited;
+
+  // The droplet is the source of truth; never sync banks from a dev machine.
+  if (!bankSyncAllowed()) return Response.json({ error: SYNC_REFUSED_MESSAGE }, { status: 409 });
 
   const connections = db.select().from(schema.simplefinConnections).all();
 

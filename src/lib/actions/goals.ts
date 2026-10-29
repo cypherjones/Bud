@@ -1,5 +1,5 @@
 import { db, schema } from "@/lib/db";
-import { eq, and, desc, isNull } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { now } from "@/lib/utils/format";
 
 // ============================================================
@@ -111,11 +111,7 @@ export function getGoalContributions(goalId: string): GoalContribution[] {
     .all();
 }
 
-/**
- * Candidate transactions for linking to a goal: positive flows on
- * savings-subtype accounts (or any income-type) that aren't already linked
- * to a goal. Used by the link picker.
- */
+/** A deposit into savings that could be linked to a goal; the shape the link picker takes. */
 export type LinkableTransaction = {
   id: string;
   date: string;
@@ -126,24 +122,23 @@ export type LinkableTransaction = {
   accountSubtype: string | null;
 };
 
-export function getLinkableTransactions(limit: number = 30): LinkableTransaction[] {
-  return db
-    .select({
-      id: schema.transactions.id,
-      date: schema.transactions.date,
-      amount: schema.transactions.amount,
-      description: schema.transactions.description,
-      merchant: schema.transactions.merchant,
-      accountName: schema.accounts.name,
-      accountSubtype: schema.accounts.subtype,
-    })
-    .from(schema.transactions)
-    .leftJoin(schema.accounts, eq(schema.transactions.accountId, schema.accounts.id))
-    .where(and(
-      eq(schema.transactions.type, "income"),
-      isNull(schema.transactions.linkedGoalId),
-    ))
-    .orderBy(desc(schema.transactions.date))
-    .limit(limit)
-    .all();
+// ============================================================
+// DELETE A GOAL
+// ============================================================
+
+/**
+ * Remove a savings goal the user no longer wants. Linked transactions stay;
+ * only their link is cleared. Called from the Savings page's "Old goals"
+ * list when the user presses Delete, never automatically.
+ */
+export function deleteSavingsGoal(goalId: string): { success: true } | { success: false; error: string } {
+  const goal = db
+    .select({ id: schema.savingsGoals.id })
+    .from(schema.savingsGoals)
+    .where(eq(schema.savingsGoals.id, goalId))
+    .get();
+  if (!goal) return { success: false, error: "Goal not found" };
+  db.update(schema.transactions).set({ linkedGoalId: null }).where(eq(schema.transactions.linkedGoalId, goalId)).run();
+  db.delete(schema.savingsGoals).where(eq(schema.savingsGoals.id, goalId)).run();
+  return { success: true };
 }
