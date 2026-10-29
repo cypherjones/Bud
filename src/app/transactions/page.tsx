@@ -4,6 +4,7 @@ import { getExcludedAccountIds, getActiveReportingMonth, getInternalCategoryIds 
 import { displayName } from "@/lib/actions/balances";
 import { PlanPage, TotalsStrip, Total } from "@/components/plan/plan-ui";
 import { cn } from "@/lib/utils";
+import { bankSyncAllowed } from "@/app/settings/sync-guard";
 import { EmptyMonthBanner } from "@/components/dashboard/empty-month-banner";
 import { formatCurrency } from "@/lib/utils/format";
 import { TransactionFilters } from "@/components/transactions/transaction-filters";
@@ -176,7 +177,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
     tagsByTxId.get(row.transactionId)!.push({ id: row.tagId, name: row.tagName, color: row.tagColor });
   }
 
-  const canSync = process.env.NODE_ENV === "production" || process.env.BUD_ALLOW_SYNC === "1";
+  const canSync = bankSyncAllowed();
   const label = activeMonth ? activeMonth.monthLabel : window.label;
 
   return (

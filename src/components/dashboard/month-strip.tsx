@@ -51,9 +51,9 @@ export function MonthStrip(p: Props) {
       <Total
         href="/budget"
         label="Against the plan"
-        value={`${usd(p.spentTracked)} of ${usd(p.plannedTracked)}`}
+        value={usd(p.spentTracked)}
         tone={p.spentTracked > pace ? "text-amber-400" : undefined}
-        note={`${p.trackedCount} of ${p.lineCount} lines tracked · month ${monthPct}% through`}
+        note={`of ${usd(p.plannedTracked)} planned on ${p.trackedCount} of ${p.lineCount} tracked lines · month ${monthPct}% through`}
       />
       <Total
         href="/budget"
