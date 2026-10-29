@@ -2,7 +2,7 @@ import Link from "next/link";
 import { loadPlan, getSavingsBalance } from "@/lib/household/load";
 import { getBusinessConfig } from "@/lib/business/config";
 import { getActionPlanItems } from "@/lib/actions/action-plan";
-import { budgetTotals, futures, cardPayoff, bonusAllocation } from "@/lib/household/calc";
+import { budgetTotals, futures, cardPayoff } from "@/lib/household/calc";
 import { salonMonth, sideMonth } from "@/lib/business/calc";
 import { formatCurrencyCompact } from "@/lib/utils/format";
 import { PlanPage, SectionHead, TotalsStrip, Total } from "@/components/plan/plan-ui";
@@ -22,7 +22,6 @@ export default function PlanOverviewPage() {
   const cols = futures(lines, config.income, config.futures.aprilTakeHome);
   const card = lines.find((l) => l.slug === "april_card");
   const payoff = cardPayoff(config.card.balance, config.card.apr, card ? card.amount / 100 : 0, new Date());
-  const bonus = bonusAllocation(lines, config.income, config.futures.aprilTakeHome, config.bonus);
   const salon = salonMonth(business.salon);
   const side = sideMonth(business.side);
   const openFor = (link: string) => tasks.filter((t) => t.link === link).length;
@@ -34,9 +33,9 @@ export default function PlanOverviewPage() {
     { href: "/plan/card", title: "April's card", stat: payoff.kind === "ok" ? payoff.paidOffBy.toLocaleDateString("en-US", { month: "short", year: "numeric" }) : "—",
       line: payoff.kind === "ok" ? `paid off, ${payoff.months} months at ${usd(card!.amount / 100)}` : "no payoff at the current payment" },
     { href: "/plan/futures", title: "Three futures", stat: usd(cols[2].left), tone: cols[2].left < 0 ? "neg" : "pos",
-      line: `a month with April at ${usd(config.futures.aprilTakeHome)}, no Meridian` },
-    { href: "/plan/bonus", title: "The bonus", stat: bonus.months === null ? "—" : `${bonus.months.toFixed(1)} mo`,
-      line: bonus.months === null ? "no gap to cover" : "of the gap it covers" },
+      line: `a month if April brings home ${usd(config.futures.aprilTakeHome)}` },
+    { href: "/plan/bonus", title: "The bonus", stat: savingsBalance === null ? "—" : usd(savingsBalance),
+      line: "left in savings after the Apple Card payoff on 28 Oct" },
     { href: "/plan/cars", title: "The cars", stat: `${openFor("/plan/cars")}`, line: openFor("/plan/cars") === 1 ? "open question before deciding" : "open questions before deciding" },
     { href: "/plan/open", title: "Still open", stat: `${tasks.length}`,
       line: nextDue ? `tasks · next due ${new Date(nextDue.dueAt! + "T12:00:00").toLocaleDateString("en-US", { day: "numeric", month: "short" })}` : "tasks" },
@@ -46,7 +45,8 @@ export default function PlanOverviewPage() {
       line: `hers to spend a month, ${business.salon.clientsPerWeek} clients a week` },
     { href: "/plan/side-hustles", title: "Side hustles", stat: usd(side.takeHome), tone: side.gap > 0 ? "neg" : "pos",
       line: `a month against the ${usd(business.side.goal)} goal` },
-    { href: "/plan/meridian", title: "Meridian", stat: `${openFor("/plan/meridian")}`, line: "tasks before the 2026 return" },
+    { href: "/plan/meridian", title: "Meridian", stat: `${openFor("/plan/meridian")}`,
+      line: "closed 27 Oct · tasks for the dissolution and final return" },
   ];
 
   return (

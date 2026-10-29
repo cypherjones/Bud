@@ -252,10 +252,10 @@ export function seedHouseholdPlanTasksOnce(): boolean {
       sortOrder: 240,
     },
     {
-      title: "Find out what Pantheon is running",
-      description: "$44.16 a month on a personal account for a closed business. Kinsta is resolved — it's Simon's and moving to him.",
+      title: "Confirm Kinsta and Pantheon end after November",
+      description: "Both budget lines are marked to end after November: Kinsta $124 and Pantheon $55 a month, charged to personal accounts for a company that closed on 27 October. Check that both are cancelled, or moved to Simon, before December's charges.",
       phase: "this_week",
-      estimatedSavingsCents: 4416,
+      estimatedSavingsCents: 17900,
       sortOrder: 250,
     },
     {
@@ -268,27 +268,11 @@ export function seedHouseholdPlanTasksOnce(): boolean {
 
     // === THIS MONTH ===
     {
-      title: "Amend Meridian's operating agreement: members shall bear tool costs",
-      description: "Makes the software deductible as UPE on Schedule E line 28 — roughly $2,500 of tax and recovered credits on the software alone. Must say members SHALL bear named categories (software, home office, phone/internet, vehicle) and the company shall NOT reimburse. Signed by both Managing Members. Hard deadline 15 Mar 2027; before year end is cleanest.",
+      title: "Dissolve Meridian properly",
+      description: "Meridian paid its final draw on 27 October. Read what the Operating Agreement says about dissolution and who must consent, pay the final bills, and file the Georgia paperwork that ends the LLC. Whatever is left goes out as the agreement directs.",
       phase: "this_month",
       link: "/plan/meridian",
-      dueAt: "2026-12-31",
       sortOrder: 300,
-    },
-    {
-      title: "Get Seth's written acknowledgment of the amendment",
-      description: "The Investors Agreement blocks changes that adversely affect his interest without written consent. This one likely helps the company, but he's the only one who put cash in. Same week as the amendment.",
-      phase: "this_month",
-      link: "/plan/meridian",
-      dueAt: "2026-12-31",
-      sortOrder: 310,
-    },
-    {
-      title: "Write up a consent ratifying the verbally approved 2026 budget",
-      description: "One page, dated today (not backdated), reciting that the 2026 operating budget including $3,750/mo per Managing Member was approved by all Members on or about [date]. Signed by you, Simon, then Seth.",
-      phase: "this_month",
-      link: "/plan/meridian",
-      sortOrder: 320,
     },
     {
       title: "Get his capital account detail / outside basis from Meridian's books",
@@ -298,15 +282,15 @@ export function seedHouseholdPlanTasksOnce(): boolean {
       sortOrder: 330,
     },
     {
-      title: "Engage a preparer for Meridian's first Form 1065",
-      description: "Due 15 Mar 2027 with the first K-1s; the personal return can't be finished without the K-1. A late 1065 is penalised per partner per month. Hand them the UPE amendment before they start.",
+      title: "Engage a preparer for Meridian's final Form 1065",
+      description: "A partnership's return is due the 15th day of the third month after its tax year ends, and a closing company's year ends when it finishes winding up, so the final 1065 and K-1s are likely due in January or February 2027, not 15 March. Confirm the date with the preparer. The personal return can't be finished without the K-1, and a late 1065 is penalised per partner per month.",
       phase: "this_month",
-      dueAt: "2027-03-15",
+      link: "/plan/meridian",
       sortOrder: 340,
     },
     {
       title: "Cover self-employment tax on the guaranteed payments",
-      description: "Nothing is withholding against it — about $5,299 as things stand, $4,112 if the agreement is amended. Extra W-4 withholding or a Q4 estimated payment (due 15 Jan 2027).",
+      description: "Nothing was withheld from the Meridian draws, which ended on 27 October. /tax works out what is owed. Extra W-4 withholding or a Q4 estimated payment (due 15 Jan 2027).",
       phase: "this_month",
       link: "/tax",
       dueAt: "2027-01-15",
@@ -334,13 +318,6 @@ export function seedHouseholdPlanTasksOnce(): boolean {
       link: "/budget",
       sortOrder: 380,
     },
-    {
-      title: "Ask whoever formed Meridian about Texas registration",
-      description: "It's a Georgia LLC with the old Lenox Park apartment as its registered address. Operating from Texas may need a foreign LLC registration, and the registered agent address needs updating either way.",
-      phase: "this_month",
-      link: "/plan/meridian",
-      sortOrder: 390,
-    },
 
     // === ONGOING ===
     {
@@ -352,8 +329,8 @@ export function seedHouseholdPlanTasksOnce(): boolean {
       sortOrder: 400,
     },
     {
-      title: "Keep one folder of Meridian receipts from January on",
-      description: "Every software charge is already on the card statements — mostly assembling what exists. Keep Navusoft expenses separate; mixing the two is the fastest way to lose the whole deduction.",
+      title: "Gather Meridian's records through 27 October for the final return",
+      description: "The preparer needs the year's charges and draws up to the close. Every software charge is already on the card statements, so this is mostly assembling what exists. Keep Navusoft expenses separate.",
       phase: "ongoing",
       sortOrder: 410,
     },

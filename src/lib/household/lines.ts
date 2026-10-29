@@ -63,8 +63,9 @@ export function deleteHouseholdLine(id: string) {
 
 /**
  * Seed the shared budget from the 25 Oct 2026 plan ("April and AJ's Financial
- * Plan v1"). Idempotent — only runs while the table is empty. The owners are
- * starting points, meant to be argued with.
+ * Plan v1"), updated to 29 Oct 2026. Idempotent — only runs while the table is
+ * empty. The owners are starting points, meant to be argued with. Balances
+ * live on Debts and the card page, not in these notes.
  */
 export function seedHouseholdLinesIfEmpty(): boolean {
   const existing = db.select({ id: schema.householdLines.id }).from(schema.householdLines).limit(1).all();
@@ -89,9 +90,9 @@ export function seedHouseholdLinesIfEmpty(): boolean {
       [null, "Clothes, sports, activities", 150, "both", "Accrues; spent per season"],
     ]],
     ["Transportation", [
-      [null, "Auto loan — Maverick", 781, "his", "Balance about $27,940"],
+      [null, "Auto loan — Maverick", 781, "his", "Bridgecrest. Balance on the Debts page."],
       [null, "Auto loan — Tiguan", 447, "his", "Seth takes this over from November. Set it to 0 once that is confirmed."],
-      [null, "Auto insurance — Geico", 213, "his", "AJ only. April's $142.52 policy is cancelled."],
+      [null, "Auto insurance — Geico", 320, "his", "AJ only. April's $142.52 policy was cancelled."],
       [null, "Fuel", 408, "both", ""],
       [null, "Maintenance fund", 100, "both", "Accrues"],
       [null, "Tolls", 50, "both", ""],
@@ -111,7 +112,7 @@ export function seedHouseholdLinesIfEmpty(): boolean {
       [null, "Personal allowance — hers", 100, "hers", ""],
       [null, "Pets — food and vet fund", 125, "both", ""],
     ]],
-    ["Meridian software, still on personal cards", [
+    ["Software, on personal cards", [
       [null, "Anthropic", 200, "his", "Moved off Apple to direct billing, which saved $49.99 a month"],
       [null, "DigitalOcean", 84.19, "his", "Was $49.04 in August. Something is scaling."],
       [null, "Supabase", 77.68, "his", ""],
@@ -120,9 +121,8 @@ export function seedHouseholdLinesIfEmpty(): boolean {
       [null, "Pantheon", 55, "his", "Ends after November"],
     ]],
     ["Debt", [
-      ["april_card", "April's credit card", 150, "hers", "Balance about $1,200, paid from salon revenue"],
+      ["april_card", "April's credit card", 150, "hers", "Paid from salon revenue. The balance is on the card page."],
       [null, "IRS installment agreement", 200, "his", "Pre-marriage balance, about $12,533"],
-      [null, "Apple Card minimum", 80, "his", "Balance $2,639 and over its limit. The minimum does not cover the interest."],
       ["ring", "Ring — Rare Carat lease", 336.6, "his", "$168.30 twice a month. The early buyout discount expired 8 October."],
     ]],
   ];

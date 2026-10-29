@@ -75,14 +75,31 @@ export function FuturesPlanner({ lines, initialConfig }: { lines: HouseholdLine[
             hint="Column 1 leaves her out deliberately. This box is what the other two columns test." />
           <SaveIndicator state={state} />
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-sm">
+        {/* Phone: one block per column instead of a table that scrolls sideways */}
+        <div className="space-y-3 sm:hidden">
+          {cols.map((c, i) => (
+            <div key={i} className="border-b border-border pb-3 last:border-0 last:pb-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{FUTURE_LABELS[i]}</p>
+              <table className="w-full text-sm">
+                <tbody>
+                  <LedgerRow label="Money in" value={usd(c.moneyIn)} />
+                  <LedgerRow label="Every bill, tithe adjusted" value={usd(c.out)} />
+                  <LedgerRow total label="Left over each month" value={usd(c.left)}
+                    tone={c.left < 0 ? "text-red-400" : c.left > 0 ? "text-emerald-400" : undefined} />
+                  <LedgerRow dim label="To close it" value={c.left >= 0 ? "nothing" : `${usd(-c.left)}/mo`} />
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+        <div className="hidden sm:block">
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
                 <th className="py-2 text-left font-semibold" />
-                <th className="py-2 text-right font-semibold">1. AJ&apos;s income only</th>
-                <th className="py-2 text-right font-semibold">2. Plus April&apos;s</th>
-                <th className="py-2 text-right font-semibold">3. Plus April&apos;s, no Meridian</th>
+                {FUTURE_LABELS.map((label) => (
+                  <th key={label} className="py-2 pl-3 text-right font-semibold">{label}</th>
+                ))}
               </tr>
             </thead>
             <tbody className="font-mono tabular-nums">
@@ -102,6 +119,8 @@ export function FuturesPlanner({ lines, initialConfig }: { lines: HouseholdLine[
     </Card>
   );
 }
+
+const FUTURE_LABELS = ["1. AJ's income only", "2. Plus April's", "3. Plus April's, no Meridian"];
 
 function FutureRow({ label, values, bold }: { label: string; values: number[]; bold?: boolean }) {
   return (

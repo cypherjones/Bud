@@ -271,7 +271,7 @@ function GroupRows({
             <td className="pr-2">
               {!l.slug && (
                 <button type="button" onClick={() => onRemove(l.id)} aria-label={`Remove ${l.label}`}
-                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-muted-foreground hover:text-red-400">
+                  className="md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 text-muted-foreground hover:text-red-400">
                   <X className="w-3.5 h-3.5" />
                 </button>
               )}

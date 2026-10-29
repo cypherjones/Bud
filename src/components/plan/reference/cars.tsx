@@ -1,91 +1,138 @@
 import { Card, CardContent } from "@/components/ui/card";
+import { Aside } from "@/components/plan/plan-ui";
+import { formatCurrencyCompact } from "@/lib/utils/format";
 
-const ROWS: Array<{ vehicle: string; payment: string; known: string; unknown: string; total?: boolean }> = [
-  {
-    vehicle: "Ford Maverick",
-    payment: "781",
-    known: "Balance around $27,940. The largest single payment in the budget.",
-    unknown: "Current market value, so whether selling clears the note or leaves a shortfall.",
-  },
-  {
-    vehicle: "VW Tiguan",
-    payment: "441",
-    known: "Balance around $15,515 at about 24% APR.",
-    unknown: "Value, and whether a refinance is available at April’s score.",
-  },
-  {
-    vehicle: "Suzuki",
-    payment: "0",
-    known: "Paid off. Free to sell, keep or hand on.",
-    unknown: "What it’s worth, and whether it’s reliable enough to be the third car.",
-  },
-  {
-    vehicle: "Together",
-    payment: "1,222",
-    known: "Plus $450 insurance and $400 fuel. About $2,072 a month of transport.",
-    unknown: "Whether seven people can actually move in two vehicles.",
-    total: true,
-  },
-];
+const usd = (dollars: number) => formatCurrencyCompact(Math.round(dollars * 100));
 
-const OPTIONS = [
-  {
-    label: "Option A",
-    title: "Keep all three, change nothing",
-    body: "$1,222 a month in notes. No transaction costs, no risk of being upside down, no disruption during a move and a new school year. The 24% on the Tiguan keeps running.",
-  },
-  {
-    label: "Option B",
-    title: "Sell one note, keep the Suzuki",
-    body: "Frees $441 or $781 a month. Requires the car to be worth at least the balance, or cash to cover the difference. Seven people in two vehicles is the question to answer first.",
-  },
-  {
-    label: "Option C",
-    title: "Trade both for one larger paid-down vehicle",
-    body: "The thing that actually fits seven. Also the option where negative equity from two loans gets rolled into one new loan, which is how payments go up rather than down. Needs both payoff quotes and both trade values before it can be judged.",
-  },
-];
+/** One car note: the balance and rate come from the debts table, the payment from the budget line. */
+export type CarLoan = {
+  payment: number; // dollars a month, from the plan line
+  balance: number | null; // dollars, estimated from bank payments
+  apr: number | null; // percent
+};
 
-export function CarsSection() {
+export type CarsData = {
+  maverick: CarLoan;
+  tiguan: CarLoan;
+  insurance: number; // dollars a month
+  fuel: number;
+  transport: number; // the whole Transportation group
+};
+
+function loanFacts(lender: string, l: CarLoan): string {
+  const bal = l.balance === null ? "Balance not tracked on Debts" : `Balance about ${usd(l.balance)}, estimated from bank payments`;
+  const apr = l.apr === null ? "" : `, at ${l.apr.toFixed(2)}% APR`;
+  return `${lender}. ${bal}${apr}.`;
+}
+
+export function CarsSection({ data }: { data: CarsData }) {
+  const { maverick, tiguan, insurance, fuel, transport } = data;
+  const notes = maverick.payment + tiguan.payment;
+
+  const rows: Array<{ vehicle: string; payment: string; known: string; unknown: string; total?: boolean }> = [
+    {
+      vehicle: "Ford Maverick",
+      payment: usd(maverick.payment),
+      known: `${loanFacts("Bridgecrest", maverick)} The largest single payment in the budget.`,
+      unknown: "Current market value, so whether selling clears the note or leaves a shortfall.",
+    },
+    {
+      vehicle: "VW Tiguan",
+      payment: usd(tiguan.payment),
+      known: `${loanFacts("Bridgecrest", tiguan)} The budget line says Seth takes it over from November, once that is confirmed.`,
+      unknown: "Whether Seth has confirmed, and whether the loan moves to his name or stays on AJ's credit.",
+    },
+    {
+      vehicle: "Suzuki",
+      payment: usd(0),
+      known: "Paid off. Free to sell, keep or hand on.",
+      unknown: "What it's worth, and whether it's reliable enough to be a main car.",
+    },
+    {
+      vehicle: "Together",
+      payment: usd(notes),
+      known: `Plus ${usd(insurance)} insurance and ${usd(fuel)} fuel. ${usd(transport)} a month of transport in the budget.`,
+      unknown: "Whether seven people can get around in the Maverick and the Suzuki once the Tiguan goes to Seth.",
+      total: true,
+    },
+  ];
+
+  const options = [
+    {
+      label: "Option A",
+      title: "Keep both notes, change nothing",
+      body: `${usd(notes)} a month in notes. No transaction costs and no risk of being upside down. The Tiguan's rate keeps running for as long as it stays on the household.`,
+    },
+    {
+      label: "Option B",
+      title: "Hand the Tiguan to Seth",
+      body: `What the budget line assumes from November. It takes ${usd(tiguan.payment)} a month off the household once confirmed. If the loan stays in AJ's name, a late payment still lands on AJ's credit, so it is worth settling whether Seth refinances it into his own.`,
+    },
+    {
+      label: "Option C",
+      title: "Sell or trade the Maverick",
+      body: `Frees ${usd(maverick.payment)} a month if the truck is worth at least the balance${maverick.balance === null ? "" : ` of about ${usd(maverick.balance)}`}; otherwise it needs cash to cover the difference. A payoff quote and a valuation come first.`,
+    },
+  ];
+
   return (
     <section className="space-y-4">
       <div className="border-b border-border pb-2">
         <h2 className="text-lg font-semibold">The cars</h2>
         <p className="text-sm text-muted-foreground">
-          Three vehicles, two notes, seven people. Nobody has priced the actual options yet — this is what’s known
-          and what would have to be found out.
+          Neither car has been valued against a payoff quote yet. This is what&apos;s known and what would have to be found out.
         </p>
       </div>
 
       <Card>
         <CardContent className="pt-4">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[560px]">
-              <thead>
-                <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
-                  <th className="py-2 pr-3 text-left font-semibold">Vehicle</th>
-                  <th className="py-2 px-3 text-right font-semibold">Payment</th>
-                  <th className="py-2 px-3 text-left font-semibold">Known</th>
-                  <th className="py-2 pl-3 text-left font-semibold">Not known</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ROWS.map((r) => (
-                  <tr key={r.vehicle} className="border-b border-border last:border-0 align-top">
-                    <td className="py-2 pr-3">{r.total ? <b>{r.vehicle}</b> : r.vehicle}</td>
-                    <td className="py-2 px-3 tabular-nums text-right">{r.total ? <b>{r.payment}</b> : r.payment}</td>
-                    <td className="py-2 px-3 text-muted-foreground">{r.known}</td>
-                    <td className="py-2 pl-3 text-muted-foreground">{r.unknown}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {/* Phone: one card per vehicle */}
+          <div className="space-y-3 sm:hidden">
+            {rows.map((r) => (
+              <div key={r.vehicle} className="border-b border-border pb-3 last:border-0 last:pb-0 text-sm">
+                <p className="flex items-baseline justify-between gap-3 font-semibold">
+                  {r.vehicle}
+                  <span className="tabular-nums">{r.payment}</span>
+                </p>
+                <p className="mt-1 text-muted-foreground">{r.known}</p>
+                <p className="mt-1 text-muted-foreground">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide">Not known: </span>
+                  {r.unknown}
+                </p>
+              </div>
+            ))}
           </div>
+          <table className="hidden sm:table w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="py-2 pr-3 text-left font-semibold">Vehicle</th>
+                <th className="py-2 px-3 text-right font-semibold">Payment</th>
+                <th className="py-2 px-3 text-left font-semibold">Known</th>
+                <th className="py-2 pl-3 text-left font-semibold">Not known</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.vehicle} className="border-b border-border last:border-0 align-top">
+                  <td className="py-2 pr-3">{r.total ? <b>{r.vehicle}</b> : r.vehicle}</td>
+                  <td className="py-2 px-3 tabular-nums text-right">{r.total ? <b>{r.payment}</b> : r.payment}</td>
+                  <td className="py-2 px-3 text-muted-foreground">{r.known}</td>
+                  <td className="py-2 pl-3 text-muted-foreground">{r.unknown}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </CardContent>
       </Card>
 
+      <Aside tone="warn" title="Both October payments were late">
+        <p>
+          Both Bridgecrest payments were due on 16 October and were paid on 29 October. November&apos;s are due on the 16th.
+        </p>
+      </Aside>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {OPTIONS.map((o) => (
+        {options.map((o) => (
           <Card key={o.label}>
             <CardContent className="space-y-2 pt-4">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{o.label}</p>
@@ -97,9 +144,9 @@ export function CarsSection() {
       </div>
 
       <p className="text-sm text-muted-foreground leading-relaxed max-w-prose">
-        <b className="text-foreground">The one free move on this list:</b> the insurance is $450 a month, priced partly on his
-        credit. April’s score is materially higher. Requoting with her as the primary insured costs nothing to find
-        out and was estimated at around $70 a month.
+        <b className="text-foreground">Insurance:</b> Geico is {usd(insurance)} a month in the budget, covering AJ only.
+        Requoting with April as the primary insured was estimated in October at around $70 a month less, because her score is
+        higher. That requote is still an open task.
       </p>
     </section>
   );

@@ -1,55 +1,56 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { formatCurrency } from "@/lib/utils/format";
+
+const usd2 = (dollars: number) => formatCurrency(Math.round(dollars * 100));
 
 function Label({ children }: { children: React.ReactNode }) {
   return <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{children}</p>;
 }
 
-function Ledger({ rows }: { rows: Array<{ label: string; value: string; tone?: "pos"; total?: boolean }> }) {
-  return (
-    <table className="w-full text-sm">
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.label} className={r.total ? "border-t border-border font-semibold" : ""}>
-            <td className={`py-1 ${r.total ? "" : "text-muted-foreground"}`}>{r.label}</td>
-            <td className={`py-1 tabular-nums text-right ${r.tone === "pos" ? "text-emerald-400" : ""}`}>{r.value}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-export function BonusOptions() {
+/** What the bonus did, and the options that were weighed. Amounts come from the plan; dated facts say so. */
+export function BonusOptions({
+  savings,
+  gap,
+  ringMonthly,
+  ringBuyoutCost,
+  aprilCardBalance,
+}: {
+  savings: number | null; // dollars across counted savings accounts
+  gap: number; // the real monthly shortfall, budgetTotals().net as a positive number (0 if none)
+  ringMonthly: number;
+  ringBuyoutCost: number;
+  aprilCardBalance: number;
+}) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <Card>
+      <Card className="border-l-4 border-l-emerald-500/60">
         <CardContent className="space-y-2 pt-4">
-          <Label>Use it as</Label>
-          <h3 className="text-sm font-semibold">Cash held in reserve</h3>
+          <Label>What happened</Label>
+          <h3 className="text-sm font-semibold">It paid off the Apple Card</h3>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            This is what already happened — $5,600 is sitting in 360 Performance Savings, which matches the bonus
-            after tax and tithe to within $17. Financial Peace calls it the storm rule: while the income is uncertain,
-            cash on hand beats debt paid off, because cash can be un-spent and a payoff cannot. The business account
-            runs dry about 29 October, which is the event this cash is covering.
+            The bonus was banked in 360 Performance Savings after tax and tithe. On 28 October $2,651.20 moved out of that
+            account and paid the Apple Card off in full, so in effect the bonus went to that debt.
+          </p>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {savings === null
+              ? "No savings account is synced, so what is left can't be shown."
+              : gap > 0
+                ? `The savings accounts now hold ${usd2(savings)}, against a monthly gap of ${usd2(gap)}. There is no reserve left to cover it.`
+                : `The savings accounts now hold ${usd2(savings)}.`}
           </p>
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="border-l-4 border-l-red-500/60">
         <CardContent className="space-y-2 pt-4">
-          <Label>Use it on</Label>
-          <h3 className="text-sm font-semibold">The ring buyout — $1,346.41</h3>
-          <Ledger
-            rows={[
-              { label: "Avoids", value: "3,197.70" },
-              { label: "Saves", value: "1,851.29", tone: "pos" },
-              { label: "Frees every month", value: "336.60", total: true },
-            ]}
-          />
+          <Badge variant="outline" className="bg-red-500/15 text-red-400 border-red-500/30">
+            Expired
+          </Badge>
+          <h3 className="text-sm font-semibold">The ring buyout</h3>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            A lease-to-own contract charges 2.38× the item price. Buying out early declines the markup rather than
-            paying a debt faster. The discount expires 8 October.
+            Buying the ring out early for {usd2(ringBuyoutCost)} would have ended the lease payments. That discount expired
+            on 8 October. The ring stays in the budget as a Rare Carat lease line at {usd2(ringMonthly)} a month.
           </p>
         </CardContent>
       </Card>
@@ -75,17 +76,12 @@ export function BonusOptions() {
 
       <Card>
         <CardContent className="space-y-2 pt-4">
-          <Label>Use it on</Label>
-          <h3 className="text-sm font-semibold">April’s card, or the smallest debts</h3>
-          <Ledger
-            rows={[
-              { label: "Frees every month", value: "small" },
-              { label: "Changes credit picture", value: "yes" },
-            ]}
-          />
+          <Label>Still owed</Label>
+          <h3 className="text-sm font-semibold">April&apos;s card</h3>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Her card was cleared with her aunt’s $2,000. The remaining small balances mostly free very little per
-            month but do affect credit, which affects the insurance quote and any car refinance.
+            {aprilCardBalance > 0
+              ? `${usd2(aprilCardBalance)}, as entered on the card page. It is paid from salon revenue, not from the bonus.`
+              : "No balance is entered on the card page."}
           </p>
         </CardContent>
       </Card>

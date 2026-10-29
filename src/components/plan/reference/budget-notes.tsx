@@ -1,5 +1,9 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { getHouseholdLines } from "@/lib/household/lines";
+import { formatCurrency } from "@/lib/utils/format";
+
+const usd2 = (dollars: number) => formatCurrency(Math.round(dollars * 100));
 
 function Src({ href, children }: { href: string; children: React.ReactNode }) {
   return (
@@ -9,54 +13,59 @@ function Src({ href, children }: { href: string; children: React.ReactNode }) {
   );
 }
 
+/** Notes under the budget. Server-only: reads the software lines so the totals match the budget above. */
 export function BudgetNotes() {
+  const software = getHouseholdLines().filter((l) => /software/i.test(l.groupName));
+  const total = software.reduce((s, l) => s + l.amount / 100, 0);
+  const ending = software.filter((l) => /ends? after/i.test(l.note ?? ""));
+  const endingTotal = ending.reduce((s, l) => s + l.amount / 100, 0);
+  const names = (ls: typeof software) => ls.map((l) => `${l.label} ${usd2(l.amount / 100)}`).join(", ");
+
   return (
     <div className="space-y-4">
       <Card>
         <CardContent className="space-y-3 pt-4">
-          <Badge variant="outline" className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30">
-            These may be deductible — but only with one piece of paper
+          <Badge variant="outline" className="bg-amber-500/15 text-amber-400 border-amber-500/30">
+            Meridian closed on 27 October
           </Badge>
-          <h3 className="text-sm font-semibold">
-            Partnership costs paid personally are a real deduction. Employee costs are not.
-          </h3>
+          <h3 className="text-sm font-semibold">The software lines are personal costs now.</h3>
           <div className="space-y-3 text-sm text-muted-foreground leading-relaxed max-w-prose">
             <p>
-              These are two different rules and they are easy to run together. <b className="text-foreground">Navusoft is a W-2 job</b>,
-              and unreimbursed employee expenses are gone — section 67(h) eliminated them and the Form 2106
-              instructions say plainly that employees outside four narrow categories “may not use the Form 2106
-              due to the termination of miscellaneous itemized deductions.”
+              Meridian paid its final draw on 27 October. Anything charged after that is a household cost, whatever it was
+              used for.
             </p>
             <p>
-              <b className="text-foreground">Meridian is a partnership, and that is a different rule entirely.</b> The Schedule E
-              instructions say: “You can deduct unreimbursed ordinary and necessary partnership expenses you paid on
-              behalf of the partnership{" "}
-              <b className="text-foreground">if you were required to pay these expenses under the partnership agreement</b>.” Reported
-              as UPE on line 28, it reduces income tax and self-employment income both.
+              While the company ran, these charges were not deductible either. Schedule E allows a partner to deduct
+              partnership expenses paid personally only “if you were required to pay these expenses under the partnership
+              agreement,” and Meridian&apos;s agreements never required it. What, if anything, that means for 2026 is a
+              question for whoever prepares the final 1065.
             </p>
             <p>
-              That condition is the whole thing. Paying them isn’t enough — the agreement has to require it.
-              Amending Meridian’s operating agreement to say partners bear certain costs personally, signed by both
-              partners, turns <b className="text-foreground tabular-nums">$466.13</b> a month of software into a deduction. Add a home
-              office, phone and mileage and the figure is larger.{" "}
-              <b className="text-foreground">On the software alone that is worth roughly $2,500 of tax and recovered credits</b>, and it
-              has to be done before the 2026 partnership return is filed.
+              <b className="text-foreground">Navusoft is a W-2 job</b>, and unreimbursed employee expenses are not
+              deductible: section 67(h) suspended them, and the Form 2106 instructions limit that form to four narrow
+              categories of employee. If any of these tools now serve AJ&apos;s apps or consulting, they are costs of that
+              business and belong with it on the side-hustles page.
             </p>
             <p className="text-xs">
               <Src href="https://www.irs.gov/instructions/i1040se">Schedule E instructions</Src> ·{" "}
-              <Src href="https://www.law.cornell.edu/uscode/text/26/761">26 U.S.C. §761(c)</Src> (amending an agreement for a
-              past year) ·{" "}
-              <Src href="https://www.irs.gov/instructions/i2106">Form 2106 instructions</Src> (why the W-2 side doesn’t work)
+              <Src href="https://www.irs.gov/instructions/i2106">Form 2106 instructions</Src>
             </p>
           </div>
         </CardContent>
       </Card>
-      <p className="text-sm text-muted-foreground leading-relaxed max-w-prose">
-        <b className="text-foreground">The software figures are exact, not estimated.</b> Every line above is a real charge from the
-        account feeds, with the date and account it hit. They total <b className="text-foreground tabular-nums">$409.19</b> a month
-        across Chime, Capital One 360 and Navy Federal — three personal accounts. Kinsta is Simon’s and is moving to
-        him, which takes $122.36 off. Pantheon at $44.16 is still unaccounted for.
-      </p>
+      {software.length > 0 && (
+        <p className="text-sm text-muted-foreground leading-relaxed max-w-prose">
+          <b className="text-foreground">The software lines total <span className="tabular-nums">{usd2(total)}</span> a month</b>{" "}
+          ({names(software)}).
+          {ending.length > 0 && (
+            <>
+              {" "}
+              {names(ending)} {ending.length === 1 ? "is" : "are"} marked to end after November, which takes{" "}
+              <span className="tabular-nums">{usd2(endingTotal)}</span> off from December.
+            </>
+          )}
+        </p>
+      )}
     </div>
   );
 }
