@@ -1,20 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { MonthlySummary } from "./monthly-summary";
-import { SubscriptionAudit } from "./subscription-audit";
 import { FrivolousReport } from "./frivolous-report";
 import { CategoryTrends } from "./category-trends";
-import { CashFlowForecast } from "./cash-flow-forecast";
-import { DebtPayoffPlan } from "./debt-payoff-plan";
-import { MoveReadinessReport } from "./move-readiness";
-import { CreditTrajectoryReport } from "./credit-trajectory";
-import type { MoveReadiness } from "@/lib/actions/move-readiness";
-import type { CreditTrajectory } from "@/lib/actions/credit-trajectory";
 
 type Props = {
-  /** Tab to open first; the home page links straight to "subscriptions". */
+  /** Tab to open first. */
   initialTab?: string;
   monthlySummary: {
     expenses: number;
@@ -32,18 +24,6 @@ type Props = {
     dailyRate: number;
     daysElapsed: number;
     daysRemaining: number;
-  };
-  subscriptions: {
-    subscriptions: { merchant: string; monthlyCost: number; category: string | null; lastSeen: string; flaggedCancel: boolean; flaggedReimbursable?: boolean; flaggedKillList?: boolean; daysSinceLastSeen?: number; isStale?: boolean }[];
-    staleSubscriptions: { merchant: string; monthlyCost: number; category: string | null; lastSeen: string; flaggedCancel: boolean; flaggedReimbursable?: boolean; flaggedKillList?: boolean; daysSinceLastSeen?: number; isStale?: boolean }[];
-    reimbursableSubs: { merchant: string; monthlyCost: number; category: string | null; lastSeen: string; flaggedCancel: boolean; flaggedReimbursable?: boolean; flaggedKillList?: boolean; daysSinceLastSeen?: number; isStale?: boolean }[];
-    killListSubs: { merchant: string; monthlyCost: number; category: string | null; lastSeen: string; flaggedCancel: boolean; flaggedReimbursable?: boolean; flaggedKillList?: boolean; daysSinceLastSeen?: number; isStale?: boolean }[];
-    totalMonthly: number;
-    totalAnnual: number;
-    reimbursableMonthly: number;
-    killListMonthly: number;
-    cancelledMonthlySavings: number;
-    staleMonthly: number;
   };
   frivolous: {
     items: { merchant: string | null; amount: number; date: string; categoryName: string | null }[];
@@ -64,49 +44,6 @@ type Props = {
     daysCovered: number;
     daysInMonth: number;
   }[];
-  cashFlow: {
-    data: { date: string; expenses: number; income: number; isProjected: boolean; projectedBalance: number }[];
-    startingBalance: number;
-    endOfMonthBalance: number;
-    endOfNextMonthBalance: number;
-    lowestProjected: { balance: number; date: string } | null;
-    projectedNet30: number;
-    survivalFloor: number;
-    breachesFloor: boolean;
-    variableDailyRate: number;
-    cappedCategoryCount: number;
-    variableBreakdown: { categoryName: string; trailing30: number; budget: number | null; effective: number }[];
-  };
-  debtStrategy: {
-    totalBalance: number;
-    totalMinimums: number;
-    currentRecommendedTotal: number;
-    scenarios: {
-      label: string;
-      extraMonthly: number;
-      monthsToDebtFree: number | null;
-      payoffDate: string | null;
-      totalInterestPaid: number;
-      totalPaid: number;
-      interestSavedVsMin: number;
-      monthsSavedVsMin: number | null;
-    }[];
-    avalanche: {
-      debtId: string;
-      creditorName: string;
-      balance: number;
-      apr: number;
-      minimumPayment: number;
-      monthlyInterest: number;
-      payoffMonth: number;
-      payoffDate: string;
-    }[];
-    snowballMonths: number | null;
-    avalancheMonths: number | null;
-    highestImpactTarget: { debtId: string; creditorName: string; reason: string } | null;
-  };
-  moveReadiness: MoveReadiness;
-  creditTrajectory: CreditTrajectory;
   categories: {
     id: string;
     name: string;
@@ -119,45 +56,17 @@ type Props = {
 };
 
 export function ReportTabs(props: Props) {
+  const initial = ["summary", "frivolous", "trends"].includes(props.initialTab ?? "") ? props.initialTab : "summary";
   return (
-    <Tabs defaultValue={props.initialTab ?? "move"} className="space-y-6">
+    <Tabs defaultValue={initial} className="space-y-6">
       <TabsList className="flex-wrap h-auto gap-1">
-        <TabsTrigger value="move">Move Readiness</TabsTrigger>
-        <TabsTrigger value="credit-traj">Credit Trajectory</TabsTrigger>
-        <TabsTrigger value="debt">Debt Plan</TabsTrigger>
-        <TabsTrigger value="cashflow">Cash Flow</TabsTrigger>
-        <TabsTrigger value="summary">Monthly Summary</TabsTrigger>
-        <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
+        <TabsTrigger value="summary">This month</TabsTrigger>
         <TabsTrigger value="frivolous">Discretionary</TabsTrigger>
-        <TabsTrigger value="trends">Category Trends</TabsTrigger>
+        <TabsTrigger value="trends">Six months</TabsTrigger>
       </TabsList>
 
-      <TabsContent value="move">
-        <MoveReadinessReport data={props.moveReadiness} />
-      </TabsContent>
-
-      <TabsContent value="credit-traj">
-        <CreditTrajectoryReport data={props.creditTrajectory} />
-      </TabsContent>
-
-      <TabsContent value="debt">
-        <DebtPayoffPlan data={props.debtStrategy} />
-      </TabsContent>
-
       <TabsContent value="summary">
-        <MonthlySummary
-          summary={props.monthlySummary}
-          velocity={props.velocity}
-          requiredSavingsPace={props.moveReadiness.requiredMonthlyPaceCents}
-        />
-      </TabsContent>
-
-      <TabsContent value="subscriptions">
-        <p className="mb-3 text-sm text-muted-foreground">
-          To cancel, hand off or name Apple charges, use{" "}
-          <Link href="/subscriptions" className="underline decoration-dotted underline-offset-2">Subscription management</Link>.
-        </p>
-        <SubscriptionAudit data={props.subscriptions} />
+        <MonthlySummary summary={props.monthlySummary} velocity={props.velocity} />
       </TabsContent>
 
       <TabsContent value="frivolous">
@@ -166,10 +75,6 @@ export function ReportTabs(props: Props) {
 
       <TabsContent value="trends">
         <CategoryTrends data={props.categoryTrends} />
-      </TabsContent>
-
-      <TabsContent value="cashflow">
-        <CashFlowForecast data={props.cashFlow} />
       </TabsContent>
     </Tabs>
   );

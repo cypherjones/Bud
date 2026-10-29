@@ -14,13 +14,15 @@ const getInternalCategoryIds = cache((): string[] => {
     .from(schema.categoryGroups)
     .where(eq(schema.categoryGroups.name, "Internal"))
     .get();
-  if (!internalGroup) return [];
-  return db
-    .select({ id: schema.categories.id })
-    .from(schema.categories)
-    .where(eq(schema.categories.groupId, internalGroup.id))
-    .all()
-    .map((c) => c.id);
+  const ids = internalGroup
+    ? db.select({ id: schema.categories.id }).from(schema.categories).where(eq(schema.categories.groupId, internalGroup.id)).all().map((c) => c.id)
+    : [];
+  // Card payments move money to a card whose purchases are already counted as
+  // spending (every card is synced), so paying one off isn't spending again.
+  // Loans have their own categories (Car Payment, Loan Payment); a loan payment
+  // auto-categorized as Debt Payment would be hidden here — recategorize it.
+  const cardPayment = db.select({ id: schema.categories.id }).from(schema.categories).where(eq(schema.categories.name, "Debt Payment")).get();
+  return cardPayment ? [...ids, cardPayment.id] : ids;
 });
 
 /** Account IDs flagged as excluded — their rows do not appear in dashboard or reports.
@@ -740,6 +742,7 @@ export function monthlizeRecurring(amount: number, frequency: string): number {
     case "biweekly": return Math.round(amount * 26 / 12);
     case "weekly": return Math.round(amount * 52 / 12);
     case "yearly": return Math.round(amount / 12);
+    case "one_time": return 0; // a single payment isn't a monthly bill
     default: return amount;
   }
 }

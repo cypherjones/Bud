@@ -62,11 +62,8 @@ export const getSpendingVelocity = cache(_getSpendingVelocity);
 function _getSpendingVelocity() {
   const monthStart = getMonthStart();
   const today = getToday();
-  // daysElapsed = day-of-month - 1, with a floor of 1. On day 5 at any time of
-  // day, only 4 full days of spending have actually accrued — counting today
-  // as a full day understates the daily rate by ~1/N (10% on day 10, etc.).
-  // The floor of 1 prevents division by zero on the 1st of the month.
-  const daysElapsed = Math.max(1, getDaysElapsed() - 1);
+  // Month-to-date spending includes today's, so today counts as a day.
+  const daysElapsed = Math.max(1, getDaysElapsed());
   const daysInMonth = getDaysInMonth();
   const daysRemaining = daysInMonth - daysElapsed;
 
@@ -901,6 +898,7 @@ function _getCashFlowForecast(days: number = 90) {
       amount: schema.recurringTransactions.amount,
       frequency: schema.recurringTransactions.frequency,
       nextDueDate: schema.recurringTransactions.nextDueDate,
+      lastSeenDate: schema.recurringTransactions.lastSeenDate,
       categoryId: schema.recurringTransactions.categoryId,
       groupName: schema.categoryGroups.name,
     })
@@ -948,6 +946,7 @@ function _getCashFlowForecast(days: number = 90) {
   }
 
   // Expand each recurring row across the projection window.
+  let todayDue = 0;
   for (const r of projectionRecurring) {
     if (!r.nextDueDate) continue;
     const isIncome = r.groupName === "Income";
@@ -959,7 +958,11 @@ function _getCashFlowForecast(days: number = 90) {
       iter++;
       const dateStr = occ.toLocaleDateString("en-CA");
       // Skip occurrences in the past (those are in actuals or already happened).
-      if (dateStr > today) {
+      // Today's still count unless the charge has posted.
+      if (dateStr === today && !(r.lastSeenDate && r.lastSeenDate >= today)) {
+        // Due today and not posted yet: still comes out of today's cash.
+        todayDue += isIncome ? -r.amount : r.amount;
+      } else if (dateStr > today) {
         const day = dayMap.get(dateStr);
         if (day) {
           if (isIncome) day.income += r.amount;
@@ -992,7 +995,7 @@ function _getCashFlowForecast(days: number = 90) {
   // bills. The rate covers every expense category not already on a recurring
   // schedule (and capped at budget where one is set).
   const sortedDays = [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date));
-  let runningBalance = startingBalance;
+  let runningBalance = startingBalance - todayDue;
   for (const day of sortedDays) {
     if (day.isProjected) {
       day.expenses += variableDailyRate;

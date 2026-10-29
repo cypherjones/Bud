@@ -1,18 +1,11 @@
 import { db, schema } from "@/lib/db";
-import { desc, eq, and, gte, inArray, notInArray } from "drizzle-orm";
-import { getExcludedAccountIds, getActiveReportingMonth } from "@/lib/actions/dashboard";
+import { desc, eq, and, gte, lte, inArray, notInArray } from "drizzle-orm";
+import { getExcludedAccountIds, getActiveReportingMonth, getInternalCategoryIds } from "@/lib/actions/dashboard";
+import { displayName } from "@/lib/actions/balances";
+import { PlanPage, TotalsStrip, Total } from "@/components/plan/plan-ui";
+import { cn } from "@/lib/utils";
 import { EmptyMonthBanner } from "@/components/dashboard/empty-month-banner";
 import { formatCurrency } from "@/lib/utils/format";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from "@/components/ui/table";
 import { TransactionFilters } from "@/components/transactions/transaction-filters";
 import { SyncButton } from "@/components/transactions/sync-button";
 import { CategorySelect } from "@/components/transactions/category-select";
@@ -23,26 +16,27 @@ import { getDuplicateCandidates } from "@/lib/actions/transactions";
 
 export const dynamic = "force-dynamic";
 
-function getDateRange(range: string | undefined): string | null {
+/** Start and end (inclusive) for a range; null means unbounded. */
+function getDateRange(range: string | undefined): { start: string | null; end: string | null; label: string } {
   const now = new Date();
+  const d = (y: number, m: number, day: number) => new Date(y, m, day).toLocaleDateString("en-CA");
+  const y = now.getFullYear();
+  const m = now.getMonth();
   switch (range) {
-    case "last-month": {
-      const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      return d.toLocaleDateString("en-CA");
-    }
-    case "3-months": {
-      const d = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-      return d.toLocaleDateString("en-CA");
-    }
+    case "last-month":
+      return { start: d(y, m - 1, 1), end: d(y, m, 0), label: new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long" }) };
+    case "3-months":
+      return { start: d(y, m - 3, 1), end: null, label: `${new Date(y, m - 3, 1).toLocaleDateString("en-US", { month: "long" })} to today` };
     case "all":
-      return null;
+      return { start: null, end: null, label: "All time" };
     case "this-month":
-    default: {
-      const d = new Date(now.getFullYear(), now.getMonth(), 1);
-      return d.toLocaleDateString("en-CA");
-    }
+    default:
+      return { start: d(y, m, 1), end: null, label: new Date(y, m, 1).toLocaleDateString("en-US", { month: "long" }) };
   }
 }
+
+/** Enough to scroll on a phone; narrow the range for more. */
+const ROW_LIMIT = 400;
 
 interface PageProps {
   searchParams: Promise<{ range?: string; category?: string }>;
@@ -58,9 +52,14 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   // month otherwise. Avoids the "first day of month → empty list" trap.
   const activeMonth = !range || range === "this-month" ? getActiveReportingMonth() : null;
   const conditions = [];
-  const startDate = activeMonth ? activeMonth.monthStart : getDateRange(range);
+  const window = getDateRange(range);
+  const startDate = activeMonth ? activeMonth.monthStart : window.start;
+  const endDate = activeMonth ? null : window.end;
   if (startDate) {
     conditions.push(gte(schema.transactions.date, startDate));
+  }
+  if (endDate) {
+    conditions.push(lte(schema.transactions.date, endDate));
   }
   if (categoryFilter && categoryFilter !== "all") {
     conditions.push(eq(schema.transactions.categoryId, categoryFilter));
@@ -100,6 +99,14 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(schema.transactions.date))
     .all();
+  const internal = new Set(getInternalCategoryIds());
+  const isMove = (t: { categoryId: string | null }) => !!t.categoryId && internal.has(t.categoryId);
+  const totals = {
+    in: transactions.filter((t) => t.type === "income" && !isMove(t)).reduce((s, t) => s + t.amount, 0),
+    out: transactions.filter((t) => t.type === "expense" && !isMove(t)).reduce((s, t) => s + t.amount, 0),
+    moves: transactions.filter(isMove).length,
+  };
+  const shown = transactions.slice(0, ROW_LIMIT);
 
   // Fetch all categories for the filter dropdown
   const categories = await db
@@ -141,7 +148,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
 
   // Fetch transaction-tag mappings — scoped to the transactions on this page
   // so we don't pull the entire `transaction_tags` table for a single month view.
-  const visibleTxIds = transactions.map((t) => t.id);
+  const visibleTxIds = shown.map((t) => t.id);
   const txTagRows = visibleTxIds.length > 0
     ? await db
         .select({
@@ -169,136 +176,76 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
     tagsByTxId.get(row.transactionId)!.push({ id: row.tagId, name: row.tagName, color: row.tagColor });
   }
 
+  const canSync = process.env.NODE_ENV === "production" || process.env.BUD_ALLOW_SYNC === "1";
+  const label = activeMonth ? activeMonth.monthLabel : window.label;
+
   return (
-    <div className="flex flex-col h-full">
-      <header className="px-8 py-6 border-b border-border bg-card/50 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Transactions</h1>
-          <p className="text-sm text-muted-foreground">
-            Synced from your bank accounts
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+    <PlanPage
+      title="Transactions"
+      sub="Everything the banks have sent. Transfers between your own accounts and card payments are dimmed and left out of the totals."
+      actions={
+        <>
           <AddTransactionDialog accounts={accountsForEntry} categories={categories} />
-          <SyncButton />
-        </div>
-      </header>
-      <div className="flex-1 overflow-auto p-8 space-y-6">
-        {activeMonth?.isFallback && activeMonth.fallbackReason && (
-          <EmptyMonthBanner reason={activeMonth.fallbackReason} />
-        )}
+          {canSync && <SyncButton />}
+        </>
+      }
+    >
+      {activeMonth?.isFallback && activeMonth.fallbackReason && <EmptyMonthBanner reason={activeMonth.fallbackReason} />}
 
-        <DuplicateReviewPanel candidates={duplicateCandidates} />
+      <DuplicateReviewPanel candidates={duplicateCandidates} />
 
-        {/* Filters */}
+      <div className="space-y-4">
         <TransactionFilters categories={categories} />
 
-        {/* Transaction Table */}
-        {transactions.length === 0 ? (
-          <Card>
-            <CardContent className="py-12">
-              <div className="text-center space-y-2">
-                <p className="text-sm font-medium text-muted-foreground">
-                  No transactions found
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {categoryFilter && categoryFilter !== "all"
-                    ? "Try changing the category filter or date range."
-                    : "Connect your bank in Settings to see transactions here."}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="pl-4">Date</TableHead>
-                    <TableHead>Merchant</TableHead>
-                    <TableHead>Account</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead className="pr-4">Tags</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {transactions.map((tx) => {
-                    const isIncome = tx.type === "income";
-                    const formattedDate = new Date(
-                      tx.date + "T00:00:00",
-                    ).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    });
+        <TotalsStrip cols={3}>
+          <Total label={`In, ${label}`} value={formatCurrency(totals.in)} tone="text-emerald-400" />
+          <Total label={`Spent, ${label}`} value={formatCurrency(totals.out)} />
+          <Total label="Moves and card payments" value={String(totals.moves)} note="Not counted as spending or income" />
+        </TotalsStrip>
 
-                    return (
-                      <TableRow key={tx.id}>
-                        <TableCell className="pl-4 text-muted-foreground">
-                          {formattedDate}
-                        </TableCell>
-                        <TableCell className="font-medium">
-                          {tx.merchant ?? tx.description}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">
-                          <div className="flex flex-col">
-                            <span className="truncate max-w-[140px]">
-                              {tx.accountName ?? "—"}
-                            </span>
-                            {tx.accountLastFour && (
-                              <span className="text-[10px] text-muted-foreground/70">
-                                ····{tx.accountLastFour}
-                              </span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell
-                          className={
-                            isIncome
-                              ? "text-emerald-600 dark:text-emerald-400 font-medium"
-                              : "font-medium"
-                          }
-                        >
-                          {isIncome ? "+" : "-"}
-                          {formatCurrency(Math.abs(tx.amount))}
-                        </TableCell>
-                        <TableCell>
-                          <CategorySelect
-                            transactionId={tx.id}
-                            currentCategory={{
-                              name: tx.categoryName,
-                              color: tx.categoryColor,
-                              icon: tx.categoryIcon,
-                            }}
-                            categories={categories}
-                          />
-                        </TableCell>
-                        <TableCell className="pr-4">
-                          <TagEditor
-                            transactionId={tx.id}
-                            tags={tagsByTxId.get(tx.id) ?? []}
-                            allTags={allTags}
-                          />
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+        {transactions.length === 0 ? (
+          <p className="rounded-xl border border-border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
+            {categoryFilter && categoryFilter !== "all" ? "Nothing in this category for this range." : "Nothing in this range."}
+          </p>
+        ) : (
+          <div className="divide-y divide-border rounded-xl border border-border bg-card">
+            {shown.map((tx) => {
+              const isIncome = tx.type === "income";
+              const moved = isMove(tx);
+              const date = new Date(tx.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+              return (
+                <div key={tx.id} className={cn("px-4 py-2.5", moved && "opacity-60")}>
+                  <div className="flex items-baseline gap-3">
+                    <p className="flex-1 min-w-0 truncate font-medium text-sm">{tx.merchant ?? tx.description}</p>
+                    <p className={cn("font-mono tabular-nums text-sm whitespace-nowrap", isIncome && "text-emerald-400")}>
+                      {isIncome ? "+" : "−"}
+                      {formatCurrency(Math.abs(tx.amount))}
+                    </p>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    <span className="whitespace-nowrap">{date}</span>
+                    <span className="truncate max-w-[12rem]">{tx.accountName ? displayName(tx.accountName, tx.accountInstitution) : "—"}</span>
+                    <CategorySelect
+                      transactionId={tx.id}
+                      currentCategory={{ name: tx.categoryName, color: tx.categoryColor, icon: tx.categoryIcon }}
+                      categories={categories}
+                    />
+                    <TagEditor transactionId={tx.id} tags={tagsByTxId.get(tx.id) ?? []} allTags={allTags} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
 
-        {/* Summary footer */}
         {transactions.length > 0 && (
           <p className="text-xs text-muted-foreground text-right">
-            Showing {transactions.length} transaction
-            {transactions.length !== 1 ? "s" : ""}
+            {transactions.length > ROW_LIMIT
+              ? `Showing the newest ${ROW_LIMIT} of ${transactions.length}. Pick a shorter range to see the rest.`
+              : `${transactions.length} transaction${transactions.length !== 1 ? "s" : ""}`}
           </p>
         )}
       </div>
-    </div>
+    </PlanPage>
   );
 }

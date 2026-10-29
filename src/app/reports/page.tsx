@@ -1,17 +1,14 @@
+import Link from "next/link";
 import {
   getMonthlySummary,
-  getSubscriptionAudit,
   getFrivolousSpending,
   getCategoryTrends,
-  getCashFlowForecast,
   getSpendingVelocity,
 } from "@/lib/actions/reports";
 import { getActiveReportingMonth } from "@/lib/actions/dashboard";
-import { getDebtStrategy } from "@/lib/actions/debts";
-import { getMoveReadiness } from "@/lib/actions/move-readiness";
-import { getCreditTrajectory } from "@/lib/actions/credit-trajectory";
 import { ReportTabs } from "@/components/reports/report-tabs";
 import { EmptyMonthBanner } from "@/components/dashboard/empty-month-banner";
+import { PlanPage } from "@/components/plan/plan-ui";
 import { db, schema } from "@/lib/db";
 import { eq } from "drizzle-orm";
 
@@ -21,23 +18,10 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const { tab } = await searchParams;
   const activeMonth = getActiveReportingMonth();
 
-  // Monthly Summary, Spending-by-Day, and Frivolous accept a startDate / monthStart
-  // override and respect the fallback. Velocity, CashFlowForecast, etc. are
-  // current-month-bound — when the active month is the current month they show
-  // the same view; when we fall back to prior month the cards may show 0
-  // because the helpers compute "this month so far." That's noted in the banner.
   const monthlySummary = getMonthlySummary(activeMonth.monthStart);
   const velocity = getSpendingVelocity();
-  const subscriptions = getSubscriptionAudit();
   const frivolous = getFrivolousSpending(activeMonth.monthStart);
   const categoryTrends = getCategoryTrends(6);
-  // 75 days = ~through end of next month + buffer, so the "End of Next Month"
-  // headline always lands inside the projection window. A 30-day window cut off
-  // 3-4 future paychecks and made next month's balance look like a cliff.
-  const cashFlow = getCashFlowForecast(75);
-  const debtStrategy = getDebtStrategy();
-  const moveReadiness = getMoveReadiness();
-  const creditTrajectory = getCreditTrajectory();
 
   // Categories list for inline recategorization in the Discretionary "Other"
   // bucket drill-down. Same shape /transactions uses.
@@ -55,32 +39,27 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
     .leftJoin(schema.categoryGroups, eq(schema.categories.groupId, schema.categoryGroups.id))
     .all();
 
+  const link = "underline decoration-dotted underline-offset-2";
   return (
-    <div className="flex flex-col h-full">
-      <header className="px-8 py-6 border-b border-border bg-card/50">
-        <h1 className="text-2xl font-bold tracking-tight">Reports</h1>
-        <p className="text-sm text-muted-foreground">
-          Actionable insights — {activeMonth.monthLabel}
-        </p>
-      </header>
-      <div className="flex-1 overflow-auto p-8 space-y-4">
-        {activeMonth.isFallback && activeMonth.fallbackReason && (
-          <EmptyMonthBanner reason={activeMonth.fallbackReason} />
-        )}
-        <ReportTabs
-          initialTab={tab}
-          monthlySummary={monthlySummary}
-          velocity={velocity}
-          subscriptions={subscriptions}
-          frivolous={frivolous}
-          categoryTrends={categoryTrends}
-          cashFlow={cashFlow}
-          debtStrategy={debtStrategy}
-          moveReadiness={moveReadiness}
-          creditTrajectory={creditTrajectory}
-          categories={categories}
-        />
-      </div>
-    </div>
+    <PlanPage
+      title="Reports"
+      sub={
+        <>
+          Looking back at {activeMonth.monthLabel} and the six months before it. Looking ahead is on{" "}
+          <Link href="/next" className={link}>Next month</Link>; subscriptions on <Link href="/subscriptions" className={link}>Subscriptions</Link>;
+          debts on <Link href="/debts" className={link}>Debts</Link>.
+        </>
+      }
+    >
+      {activeMonth.isFallback && activeMonth.fallbackReason && <EmptyMonthBanner reason={activeMonth.fallbackReason} />}
+      <ReportTabs
+        initialTab={tab}
+        monthlySummary={monthlySummary}
+        velocity={velocity}
+        frivolous={frivolous}
+        categoryTrends={categoryTrends}
+        categories={categories}
+      />
+    </PlanPage>
   );
 }

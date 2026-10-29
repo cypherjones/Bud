@@ -15,18 +15,16 @@ import { getUpcomingDebtDeadlines } from "@/lib/actions/debts";
 import {
   getMetrics,
   getSpendingByCategory,
-  getDebtSummary,
-  getCreditSummary,
-  getTaxSummary,
   getUpcomingBillsWindow,
   getSinceLastVisit,
   getTotalBalance,
-  getDebtFreeProjection,
   getUpcomingBillCluster,
 } from "@/lib/actions/dashboard";
 import { getSpendingVelocity } from "@/lib/actions/reports";
 import { logSeenDebtPayments } from "@/lib/debts/seen-payments";
 import { getSubscriptionToDo } from "@/lib/subscriptions/view";
+import { getDebtsPicture } from "@/lib/debts/picture";
+import { getCreditPicture } from "@/lib/credit/picture";
 
 export const dynamic = "force-dynamic";
 
@@ -42,10 +40,11 @@ export default function ThisMonthPage() {
   const velocity = getSpendingVelocity();
   const balance = getTotalBalance();
   const byCategory = getSpendingByCategory();
-  const debts = getDebtSummary();
-  const debtFree = getDebtFreeProjection();
-  const credit = getCreditSummary();
-  const tax = getTaxSummary();
+  const debts = getDebtsPicture();
+  const credit = getCreditPicture();
+  const late = debts.cycles.filter((c) => c.state !== "paid" && c.daysLate > 0);
+  const irsDebt = debts.planDebts.find((d) => /irs/i.test(d.label));
+  const irsCycle = irsDebt?.cycles[0];
   const killList = getSubscriptionToDo();
 
   const hasAccounts = balance.accountCount > 0;
@@ -75,7 +74,7 @@ export default function ThisMonthPage() {
     >
       <div className="space-y-3">
         <SinceLastVisitStrip {...getSinceLastVisit()} />
-        <Notices deadlines={getUpcomingDebtDeadlines(30)} cluster={getUpcomingBillCluster()} />
+        <Notices deadlines={getUpcomingDebtDeadlines(30)} cluster={getUpcomingBillCluster()} late={late} />
       </div>
 
       <MonthStrip
@@ -117,20 +116,39 @@ export default function ThisMonthPage() {
       </section>
 
       <section className="space-y-3">
-        <SectionHead title="Debts" sub="Balances as last updated on Debts. Payments show up here once they're matched to a debt." />
+        <SectionHead title="Debts" sub="Loan balances move with each payment Bud sees in the bank." />
         <DebtsSection
-          debts={debts.debts}
-          totalActive={debts.totalActive}
-          totalOriginal={debts.totalOriginal}
-          progress={debts.progress}
-          debtFreeAt={debtFree.atRecommended ?? debtFree.atMinimum}
-          debtFreeMonths={debtFree.monthsAtRecommended ?? debtFree.monthsAtMinimum}
+          rows={[
+            ...debts.loans.map((l) => ({ name: l.planLine?.label.replace(/^auto loan\s*[—-]\s*/i, "") ?? l.debt.creditorName, balance: l.debt.currentBalance, estimated: l.estimated, apr: l.debt.interestRate })),
+            ...debts.planDebts.filter((d) => d.balance).map((d) => ({ name: d.label, balance: d.balance!, estimated: false, apr: d.apr })),
+          ]}
+          owed={debts.totals.owed}
+          monthly={debts.totals.monthly}
+          debtFree={debts.totals.debtFree}
+          unpaid={debts.unpaid.map((u) => u.debt.creditorName)}
         />
       </section>
 
       <section className="space-y-3">
         <SectionHead title="Credit and tax" />
-        <CreditTaxStrip credit={credit} tax={{ totalOwed: tax.totalOwed, nextDue: tax.nextDue, count: tax.obligations.length }} />
+        <CreditTaxStrip
+          credit={
+            credit.latest
+              ? {
+                  score: credit.latest.score,
+                  date: credit.latest.date,
+                  monthsOld: credit.monthsOld ?? 0,
+                  tier: credit.tier ?? "",
+                  cardUsePct: credit.cards.limit > 0 ? Math.round((credit.cards.balance / credit.cards.limit) * 100) : null,
+                }
+              : null
+          }
+          irs={
+            irsDebt && irsCycle
+              ? { balance: irsDebt.balance ?? 0, monthly: irsDebt.monthly, dueDate: irsCycle.dueDate, nextDueDate: irsCycle.nextDueDate, paidOn: irsCycle.paidOn, daysLate: irsCycle.daysLate }
+              : null
+          }
+        />
       </section>
     </PlanPage>
   );

@@ -249,7 +249,7 @@ export function FrivolousReport({ data, categories }: Props) {
             <p className="text-sm text-muted-foreground mt-1">
               At your current pace ({formatCurrency(data.monthlyProjection)}/mo), eliminating all discretionary spending
               would free {formatCurrency(data.annualProjection)}/yr. Cutting just 50% adds {formatCurrency(Math.round(data.monthlyProjection / 2))}/month
-              toward debt payoff or your move savings.
+              toward the monthly gap or debt.
             </p>
           )}
         </CardContent>

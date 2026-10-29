@@ -2,6 +2,7 @@ import { db, schema } from "@/lib/db";
 import { and, desc, eq, like, or } from "drizzle-orm";
 import { getCreditTriage, type CreditTriage, type CreditTriageItem } from "@/lib/actions/credit-triage";
 import { today as todayIso } from "@/lib/utils/format";
+import { daysBetween, getCyclePayments, type CyclePayment } from "@/lib/debts/payments";
 
 /**
  * The credit page's picture: the last report Bud has (the April 27 Experian
@@ -59,12 +60,6 @@ export type CreditPicture = {
 const lenderKey = (name: string) => name.replace(/\(.*?\)/g, "").replace(/[^a-z\s]/gi, " ").trim().split(/\s+/)[0].toLowerCase();
 const parenWord = (name: string) => (name.match(/\((\w+)/)?.[1] ?? "").toLowerCase();
 
-function addDays(d: string, n: number): string {
-  const x = new Date(d + "T00:00:00");
-  x.setDate(x.getDate() + n);
-  return x.toLocaleDateString("en-CA");
-}
-const daysBetween = (a: string, b: string) => Math.round((Date.parse(b + "T00:00:00") - Date.parse(a + "T00:00:00")) / 86_400_000);
 const short = (d: string) => new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const usd = (c: number) => `$${(c / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 
@@ -75,46 +70,22 @@ function matchDebt(item: CreditTriageItem, debts: Debt[]): Debt | null {
   return same.find((d) => parenWord(d.creditorName) === parenWord(item.creditor)) ?? null;
 }
 
-/** The due date this cycle: the most recent `dueDay` on or before today. */
-function currentDueDate(dueDay: number, today: string): string {
-  const t = new Date(today + "T00:00:00");
-  const d = new Date(t.getFullYear(), t.getMonth(), Math.min(dueDay, 28));
-  if (d > t) d.setMonth(d.getMonth() - 1);
-  return d.toLocaleDateString("en-CA");
-}
-
-function cycleFor(debt: Debt, lastPayment: Tradeline["lastPayment"], today: string): Tradeline["cycle"] {
-  if (!debt.dueDay || debt.status !== "active" || debt.currentBalance <= 0) return null;
-  const dueDate = currentDueDate(debt.dueDay, today);
-  // A payment up to ten days early still counts for this cycle.
-  const paid = !!lastPayment && lastPayment.date >= addDays(dueDate, -10);
-  const key = lenderKey(debt.creditorName);
-  const word = parenWord(debt.creditorName);
-  const scheduled = paid
-    ? null
-    : db
-        .select({ merchant: schema.recurringTransactions.merchant, date: schema.recurringTransactions.nextDueDate, amount: schema.recurringTransactions.amount })
-        .from(schema.recurringTransactions)
-        .where(and(eq(schema.recurringTransactions.isActive, true), like(schema.recurringTransactions.merchant, `%${key}%`)))
-        .all()
-        .flatMap((r) => (r.date ? [{ ...r, date: r.date }] : []))
-        .filter((r) => r.date >= today && r.date < addDays(dueDate, 30))
-        // A lender with two loans: the row whose amount is the debt's payment.
-        .filter((r) => Math.abs(r.amount - debt.minimumPayment) <= debt.minimumPayment * 0.1 || (word && r.merchant.toLowerCase().includes(word)))
-        .sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
-  return {
-    dueDate,
-    paid,
-    scheduled: scheduled ? { date: scheduled.date, amount: scheduled.amount } : null,
-    daysPastDue: paid ? 0 : Math.max(0, daysBetween(dueDate, today)),
-    reportsLateOn: addDays(dueDate, 30),
-  };
-}
-
 export function getCreditPicture(): CreditPicture {
   const today = todayIso();
   const triage = getCreditTriage();
   const debts = db.select().from(schema.debts).all();
+  const cycles = getCyclePayments(today);
+  const cycleFor = (debt: Debt): Tradeline["cycle"] => {
+    const c: CyclePayment | undefined = cycles.find((x) => x.debtId === debt.id);
+    if (!c) return null;
+    return {
+      dueDate: c.dueDate,
+      paid: c.state === "paid",
+      scheduled: c.scheduledOn ? { date: c.scheduledOn, amount: c.amount } : null,
+      daysPastDue: c.daysLate,
+      reportsLateOn: c.reportsLateOn ?? c.dueDate,
+    };
+  };
 
   const scores: ScorePoint[] = db
     .select()
@@ -143,7 +114,7 @@ export function getCreditPicture(): CreditPicture {
       : [];
     const lastPayment = pay[0] ? { date: pay[0].date, amount: pay[0].amount } : null;
     const estimated = pay.some((p) => p.notes?.startsWith("Seen in the bank"));
-    const cycle = debt ? cycleFor(debt, lastPayment, today) : null;
+    const cycle = debt ? cycleFor(debt) : null;
 
     let headline: string;
     let tone: Tradeline["tone"] = null;
@@ -218,15 +189,6 @@ export function getCreditPicture(): CreditPicture {
         tone: "bad",
       });
     }
-  }
-  const pastDueOnReport = triage.active.filter((i) => /past due|late/i.test(i.notes ?? "") && /bridgecrest/i.test(i.creditor));
-  if (pastDueOnReport.length > 0) {
-    actions.push({
-      title: "Check whether the car loans are still behind",
-      detail:
-        "In April both Bridgecrest loans had past-due amounts. Paying just the monthly amount keeps a loan the same number of payments behind, so it can keep reporting late every month. Bridgecrest's site shows the past-due amount; anything above this month's payment needs catching up.",
-      tone: "warn",
-    });
   }
   for (const t of tradelines.filter((t) => t.tone === "bad" && !t.cycle)) {
     actions.push({

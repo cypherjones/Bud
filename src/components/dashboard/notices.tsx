@@ -2,14 +2,26 @@ import { Aside } from "@/components/plan/plan-ui";
 import { formatCurrency } from "@/lib/utils/format";
 import type { DebtDeadline } from "@/lib/actions/debts";
 import type { BillCluster } from "@/lib/actions/dashboard";
+import type { CyclePayment } from "@/lib/debts/payments";
 
 const day = (iso: string) => new Date(iso + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
 /** Things that need a look before anything else on the page. Renders nothing when there's nothing. */
-export function Notices({ deadlines, cluster }: { deadlines: DebtDeadline[]; cluster: BillCluster | null }) {
-  if (deadlines.length === 0 && !cluster) return null;
+export function Notices({ deadlines, cluster, late = [] }: { deadlines: DebtDeadline[]; cluster: BillCluster | null; late?: CyclePayment[] }) {
+  if (deadlines.length === 0 && !cluster && late.length === 0) return null;
   return (
     <div className="space-y-3">
+      {late.length > 0 && (
+        <Aside tone="warn" title={`${late.length} ${late.length === 1 ? "payment is" : "payments are"} late`}>
+          {late.map((c) => (
+            <p key={c.scheduleId}>
+              {c.name}, {formatCurrency(c.amount)} due {day(c.dueDate)}:{" "}
+              {c.state === "scheduled" ? `scheduled ${day(c.scheduledOn!)}` : "no payment in any synced account"}
+              {c.reportsLateOn ? `. Reported late if not paid by ${day(c.reportsLateOn)}.` : "."}
+            </p>
+          ))}
+        </Aside>
+      )}
       {deadlines.map((d) => {
         const when = d.daysAway < 0 ? `${Math.abs(d.daysAway)} ${Math.abs(d.daysAway) === 1 ? "day" : "days"} past due` : d.daysAway === 0 ? "today" : `in ${d.daysAway} ${d.daysAway === 1 ? "day" : "days"}`;
         return (

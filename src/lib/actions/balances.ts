@@ -27,7 +27,7 @@ const GENERIC = /^(checking|savings|aj|card|account)$/i;
 const BANK_NAMES: Record<string, string> = { capitalone: "Capital One" };
 
 /** The bank leads the name ("Navy Federal EveryDay Checking"), so every row says whose account it is. */
-function displayName(name: string, institution: string | null): string {
+export function displayName(name: string, institution: string | null): string {
   const raw = (institution ?? "").replace(/\s*\(.*\)\s*$/, "").trim();
   const inst = BANK_NAMES[raw.replace(/\s+/g, "").toLowerCase()] ?? raw;
   if (!inst) return name;

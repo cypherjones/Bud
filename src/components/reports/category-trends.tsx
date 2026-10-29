@@ -276,7 +276,7 @@ export function CategoryTrends({ data }: Props) {
                   <p className="text-[11px] text-muted-foreground pl-4">
                     Cut 20% → <span className="text-emerald-500 font-medium">{formatCurrency(cut20)}/mo</span> back ·
                     Cut 50% → <span className="text-emerald-500 font-medium">{formatCurrency(cut50)}/mo</span> back
-                    {" "}toward debt or move savings
+                    {" "}toward the monthly gap
                   </p>
                 </div>
               );
