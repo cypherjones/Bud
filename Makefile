@@ -18,8 +18,8 @@ STAMP   := $(shell date +%Y%m%d-%H%M%S)
 
 deploy:
 	@git diff --quiet HEAD -- || echo "Note: uncommitted changes are NOT deployed. Shipping $$(git rev-parse --short HEAD)."
-	@tmp=$$(mktemp -d) && git archive HEAD | tar -x -C $$tmp && \
-	  rsync -az --delete --no-owner --no-group --chmod=D755,F644 --exclude /data/ --exclude /.env.production $$tmp/ $(HOST):$(DIR)/ && rm -rf $$tmp
+	@tmp=$$(mktemp -d) && git archive HEAD | tar -x -C $$tmp && chmod 755 $$tmp && \
+	  rsync -az --delete --no-owner --no-group --exclude /data/ --exclude /.env.production $$tmp/ $(HOST):$(DIR)/ && rm -rf $$tmp
 	ssh $(HOST) 'chmod 755 $(DIR) && cd $(DIR) && mkdir -p data && chown 1001:1001 data && $(COMPOSE) up -d --build'
 	@ssh $(HOST) 'for i in $$(seq 1 30); do curl -fsS -o /dev/null http://127.0.0.1:3100/ && echo "Bud is up." && exit 0; sleep 2; done; echo "Bud did not answer on :3100"; exit 1'
 
