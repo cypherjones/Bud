@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { MonthlySummary } from "./monthly-summary";
 import { SubscriptionAudit } from "./subscription-audit";
@@ -152,6 +153,10 @@ export function ReportTabs(props: Props) {
       </TabsContent>
 
       <TabsContent value="subscriptions">
+        <p className="mb-3 text-sm text-muted-foreground">
+          To cancel, hand off or name Apple charges, use{" "}
+          <Link href="/subscriptions" className="underline decoration-dotted underline-offset-2">Subscription management</Link>.
+        </p>
         <SubscriptionAudit data={props.subscriptions} />
       </TabsContent>
 

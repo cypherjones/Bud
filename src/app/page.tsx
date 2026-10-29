@@ -23,9 +23,9 @@ import {
   getTotalBalance,
   getDebtFreeProjection,
   getUpcomingBillCluster,
-  getKillList,
 } from "@/lib/actions/dashboard";
 import { getSpendingVelocity } from "@/lib/actions/reports";
+import { getSubscriptionToDo } from "@/lib/subscriptions/view";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +44,7 @@ export default function ThisMonthPage() {
   const debtFree = getDebtFreeProjection();
   const credit = getCreditSummary();
   const tax = getTaxSummary();
-  const killList = getKillList();
+  const killList = getSubscriptionToDo();
 
   const hasAccounts = balance.accountCount > 0;
   const hasMonthData = velocity.totalSpent > 0 || metrics.income > 0;
@@ -111,7 +111,7 @@ export default function ThisMonthPage() {
 
       <section className="space-y-3">
         <SectionHead title="Coming up" sub="What the schedule says lands next, and the subscriptions waiting to be cut." />
-        <ComingUp bills={getUpcomingBillsWindow(7)} killList={killList.items} killListMonthly={killList.totalMonthly} />
+        <ComingUp bills={getUpcomingBillsWindow(7)} killList={killList} killListMonthly={killList.reduce((s, k) => s + k.monthlyCost, 0)} />
       </section>
 
       <section className="space-y-3">
