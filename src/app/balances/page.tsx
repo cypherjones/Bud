@@ -98,9 +98,7 @@ function AccountTable({ rows, withLow, total }: { rows: AccountBalance[]; withLo
               <tr key={a.id} className={cn("border-b border-border last:border-b-0", !a.counted && "text-muted-foreground")}>
                 <td className="py-1.5 pr-3">
                   {a.name}
-                  {a.institution && !a.name.startsWith(a.institution.replace(/\s*\(.*\)\s*$/, "")) && (
-                    <span className="ml-2 text-[11px] text-muted-foreground">{a.institution}</span>
-                  )}
+
                   {a.paidSinceFeed && (
                     <span className="block text-[11px] text-emerald-400">
                       Paid {day(a.paidSinceFeed.date)}. The card feed still shows {formatCurrency(a.paidSinceFeed.feedBalanceCents)} until the next statement.

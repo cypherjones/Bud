@@ -24,11 +24,16 @@ const stem = (s: string) => s.replace(/\s*\(.*\)\s*$/, "").replace(/[^a-z]/gi, "
 
 const GENERIC = /^(checking|savings|aj|card|account)$/i;
 
+const BANK_NAMES: Record<string, string> = { capitalone: "Capital One" };
+
+/** The bank leads the name ("Navy Federal EveryDay Checking"), so every row says whose account it is. */
 function displayName(name: string, institution: string | null): string {
-  const inst = (institution ?? "").replace(/\s*\(.*\)\s*$/, "").trim();
+  const raw = (institution ?? "").replace(/\s*\(.*\)\s*$/, "").trim();
+  const inst = BANK_NAMES[raw.replace(/\s+/g, "").toLowerCase()] ?? raw;
   if (!inst) return name;
   if (GENERIC.test(name.trim())) return `${inst} ${name.toLowerCase() === "aj" ? "" : name.toLowerCase()}`.trim();
-  return name;
+  if (stem(name).startsWith(stem(inst))) return name;
+  return `${inst} ${name}`;
 }
 
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
