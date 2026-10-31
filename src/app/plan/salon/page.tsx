@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default function SalonPage() {
   const { config, lines } = loadPlan();
-  const totals = budgetTotals(lines, config.income);
+  const withoutHer = budgetTotals(lines, { ...config.income, herNet: 0 });
   return (
     <PlanPage
       eyebrow={{ href: "/plan", label: "Business" }}
@@ -19,9 +19,8 @@ export default function SalonPage() {
       <SalonPlanner
         initial={getBusinessConfig().salon}
         taxHerProfit={config.tax.herProfit}
-        budgetNet={totals.net}
+        budgetNet={withoutHer.net}
         herNet={config.income.herNet}
-        householdTithePct={config.income.tithePct}
       />
       <Aside title="What changed since her plan">
         <p>

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, X } from "lucide-react";
 import { formatCurrencyCompact } from "@/lib/utils/format";
 import { cn } from "@/lib/utils";
-import { budgetTotals, lineAmount, titheOn, totalIncome, type HouseholdLine, type Income } from "@/lib/household/calc";
+import { budgetTotals, lineAmount, titheBase, titheOn, type HouseholdLine, type Income } from "@/lib/household/calc";
 import {
   applyScenario,
   hasChanges,
@@ -110,10 +110,10 @@ export function WorkingBudget({ liveLines, liveIncome, initialScenario, categori
       const v = s.income[f.key];
       if (v === undefined) continue;
       const fmt = (n: number) => (f.unit === "%" ? `${n}%` : usd(n));
-      const liveIn = totalIncome(liveIncome);
+      const base = titheBase(liveIncome);
       const delta =
         f.key === "savings" ? liveIncome.savings - v
-        : f.key === "tithePct" ? titheOn(liveIn, liveIncome.tithePct) - titheOn(liveIn, v)
+        : f.key === "tithePct" ? titheOn(base, liveIncome.tithePct) - titheOn(base, v)
         : v - liveIncome[f.key];
       rows.push({ label: f.label, detail: `${fmt(liveIncome[f.key])} to ${fmt(v)}`, delta });
     }
@@ -194,7 +194,7 @@ export function WorkingBudget({ liveLines, liveIncome, initialScenario, categori
       )}
 
       <section className="space-y-3">
-        <SectionHead title="What comes in" sub="Try a different income picture. The tithe follows whatever comes in." />
+        <SectionHead title="What comes in" sub="Try a different income picture. The tithe follows AJ's pay and the boys' share; April's comes off her takings on the salon page." />
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 rounded-xl border border-border bg-card px-4 py-3">
           {INCOME_FIELDS.map((f) => {
             const v = working.income[f.key];

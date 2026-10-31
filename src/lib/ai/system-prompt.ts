@@ -128,7 +128,7 @@ export async function buildFinancialContext(): Promise<FinancialContext> {
   for (const l of lines) groups.set(l.groupName ?? "Other", (groups.get(l.groupName ?? "Other") ?? 0) + lineAmount(l, config.income));
   const planSummary = [
     `Money in per month: ${usd(totals.moneyIn)} (AJ take-home ${usd(config.income.hisNet)}, April ${usd(config.income.herNet)} — left out of the budget for now, Simon and Frank's rent share ${usd(config.income.boys)}, Meridian draw ${usd(config.income.draw)}).`,
-    `Planned spending: ${usd(totals.out)} including a ${config.income.tithePct}% tithe of ${usd(totals.tithe)}; savings set aside ${usd(totals.savings)}.`,
+    `Planned spending: ${usd(totals.out)} including a ${config.income.tithePct}% tithe of ${usd(totals.tithe)} on AJ's pay and the boys' share (April tithes on her takings, before her pay, in her salon split); savings set aside ${usd(totals.savings)}.`,
     `Monthly gap: ${totals.net >= 0 ? "+" : "−"}${usd(Math.abs(totals.net))}.`,
     `By group: ${[...groups].sort((a, b) => b[1] - a[1]).map(([g, v]) => `${g} ${usd(v)}`).join(", ")}.`,
   ].join("\n");

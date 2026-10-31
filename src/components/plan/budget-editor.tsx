@@ -107,7 +107,7 @@ export function BudgetEditor({ initialLines, initialIncome, savingsBalance, spen
             <NumberField id="boys" label="Simon and Frank" step={25} value={income.boys}
               onChange={(n) => setIncomeField({ boys: n })} hint="A seventh of rent and a sixth of utilities each." />
             <NumberField id="tithePct" label="Tithe, percent" unit="%" value={income.tithePct}
-              onChange={(n) => setIncomeField({ tithePct: n })} hint="Calculated on everything coming in." />
+              onChange={(n) => setIncomeField({ tithePct: n })} hint="On AJ's pay and the boys' share. April's comes off the top of her takings on the salon page." />
             <NumberField id="savings" label="Into savings, per month" step={25} value={income.savings}
               onChange={(n) => setIncomeField({ savings: Math.max(0, n) })} hint="Set aside before anything counts as left over." />
             <div className="flex flex-col gap-1 min-w-0">

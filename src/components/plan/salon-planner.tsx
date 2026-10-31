@@ -26,13 +26,11 @@ export function SalonPlanner({
   taxHerProfit,
   budgetNet,
   herNet,
-  householdTithePct,
 }: {
   initial: SalonPlan;
   taxHerProfit: number;
   budgetNet: number; // the budget's monthly left-over without her pay
   herNet: number; // what the budget counts for her now
-  householdTithePct: number;
 }) {
   const [s, setS] = useState(initial);
   const [taxProfit, setTaxProfit] = useState(taxHerProfit);
@@ -47,12 +45,11 @@ export function SalonPlanner({
     schedule("salon", () => send("/api/business/config", "PATCH", { salon: next }));
   };
 
-  // The budget's tithe line takes its share of anything counted as income,
-  // her pay included, so only (1 − tithe) of her pay closes the gap.
-  const keep = 1 - householdTithePct / 100;
-  const gapBefore = budgetNet + inBudget * keep; // left over with her pay taken back out
-  const withHer = gapBefore + m.home * keep;
-  const needHome = gapBefore < 0 && keep > 0 ? -gapBefore / keep : 0;
+  // Her tithe is already off the top of her takings, so her pay closes the
+  // gap dollar for dollar.
+  const gapBefore = budgetNet;
+  const withHer = gapBefore + m.home;
+  const needHome = gapBefore < 0 ? -gapBefore : 0;
   const weekToClose = needHome > 0 ? salonWeekFor(s, needHome) : null;
 
   const home = Math.round(Math.max(0, m.home));
@@ -65,7 +62,7 @@ export function SalonPlanner({
   };
 
   const buckets: Bucket[] = [
-    { key: "tithePct", label: "Tithe", why: "Off the top of every client", amount: m.buckets.tithe },
+    { key: "tithePct", label: "Tithe", why: "First fruits, off the top of every client", amount: m.buckets.tithe },
     { key: "ownerPayPct", label: "Her pay", why: "What comes home", amount: m.buckets.ownerPay },
     { key: "opexPct", label: "Running costs", why: "High early, will shrink", amount: m.buckets.opex },
     { key: "profitPct", label: "Profit", why: "Small but kept", amount: m.buckets.profit },
@@ -129,7 +126,7 @@ export function SalonPlanner({
         <Card>
           <CardContent className="grid grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
             <NumberField id="booth" label="Booth rent, weekly" step={5} value={s.boothRentWeekly} onChange={(n) => set({ boothRentWeekly: n })}
-              hint="Her plan says $225; Bud had $250. Owed every week." />
+              hint="$250 is right, not the $225 in her plan. Owed every week." />
             <NumberField id="supplies" label="Supplies, weekly" step={5} value={s.suppliesWeekly} onChange={(n) => set({ suppliesWeekly: n })}
               hint="Cut from $50." />
             <NumberField id="cleaning" label="Cleaning, weekly" step={5} value={s.cleaningWeekly} onChange={(n) => set({ cleaningWeekly: n })} />
@@ -208,8 +205,8 @@ export function SalonPlanner({
                   <LedgerRow label={`A day, at ${s.daysPerWeek} days a week`} value={usd(targetPerDay)} />
                   <LedgerRow label={`Clients a week at ${usd(s.avgTicket)}`} value={s.avgTicket > 0 ? (Math.ceil((s.weeklyTarget / s.avgTicket) * 10) / 10).toString() : "—"} />
                   <LedgerRow label="Her pay a month at the goal" value={usd(atTarget.home)} />
-                  <LedgerRow label="Budget with that pay" value={signed(gapBefore + atTarget.home * keep)}
-                    tone={gapBefore + atTarget.home * keep < 0 ? "text-red-400" : "text-emerald-400"} />
+                  <LedgerRow label="Budget with that pay" value={signed(gapBefore + atTarget.home)}
+                    tone={gapBefore + atTarget.home < 0 ? "text-red-400" : "text-emerald-400"} />
                 </tbody>
               </table>
             </div>
@@ -220,14 +217,13 @@ export function SalonPlanner({
               ) : (
                 <>
                   <p className="text-muted-foreground leading-relaxed">
-                    The budget is {signed(gapBefore)} a month without her. Her pay would need to be {usd(needHome)}, because the budget&apos;s{" "}
-                    {householdTithePct}% tithe line takes its share of it too.{" "}
+                    The budget is {signed(gapBefore)} a month without her, so her pay would need to be {usd(needHome)}.{" "}
                     {weekToClose === null
                       ? "Her pay share is zero, so no amount of takings gets there."
                       : `At a ${s.ownerPayPct}% pay share that takes ${usd(weekToClose)} a week of takings — ${usd(weekToClose / Math.max(1, s.daysPerWeek))} a day over ${s.daysPerWeek} days.`}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Her plan already tithes on takings, so her pay is tithed twice once it&apos;s in the budget. Set one of the two to zero.
+                    Her tithe comes off the top of her takings, so her pay isn&apos;t tithed again in the budget.
                   </p>
                 </>
               )}

@@ -40,9 +40,18 @@ export function titheOn(income: number, tithePct: number): number {
   return Math.round((tithePct / 100) * income);
 }
 
+/**
+ * What the budget's tithe line is figured on. April's tithe comes off the top
+ * of her takings on the salon page, first fruits, before her pay exists, so
+ * her pay is not tithed a second time here.
+ */
+export function titheBase(i: Income): number {
+  return i.hisNet + i.draw + i.boys;
+}
+
 /** Dollar amount a line carries this month. The tithe line follows income. */
 export function lineAmount(line: HouseholdLine, income: Income): number {
-  return line.slug === "tithe" ? titheOn(totalIncome(income), income.tithePct) : line.amount / 100;
+  return line.slug === "tithe" ? titheOn(titheBase(income), income.tithePct) : line.amount / 100;
 }
 
 export function budgetTotals(lines: HouseholdLine[], income: Income) {
@@ -59,7 +68,7 @@ export function budgetTotals(lines: HouseholdLine[], income: Income) {
     out,
     savings: clamp0(income.savings),
     net: moneyIn - out - clamp0(income.savings),
-    tithe: titheOn(moneyIn, income.tithePct),
+    tithe: titheOn(titheBase(income), income.tithePct),
     hisShareOfHisIncome: hisIn > 0 ? sums.his / hisIn : null,
     hersShareOfHerIncome: income.herNet > 0 ? sums.hers / income.herNet : null,
   };
@@ -68,18 +77,20 @@ export function budgetTotals(lines: HouseholdLine[], income: Income) {
 /**
  * Three futures: same bills, three income pictures. Column 1 is his pay,
  * the draw and the boys; column 2 adds April; column 3 keeps April and drops
- * the draw. The tithe follows income in each column.
+ * the draw. The tithe follows income in each column; April's own tithe has
+ * already come off her takings, so her take-home isn't in what it's figured on.
  */
 export function futures(lines: HouseholdLine[], income: Income, aprilTakeHome: number) {
   const t = budgetTotals(lines, income);
   const april = clamp0(aprilTakeHome);
   const cols = [
-    income.hisNet + income.draw + income.boys,
-    income.hisNet + april + income.draw + income.boys,
-    income.hisNet + april + income.boys,
+    { titheOnThis: income.hisNet + income.draw + income.boys, april: 0 },
+    { titheOnThis: income.hisNet + income.draw + income.boys, april },
+    { titheOnThis: income.hisNet + income.boys, april },
   ];
-  return cols.map((moneyIn) => {
-    const out = t.out - t.tithe + titheOn(moneyIn, income.tithePct);
+  return cols.map((c) => {
+    const moneyIn = c.titheOnThis + c.april;
+    const out = t.out - t.tithe + titheOn(c.titheOnThis, income.tithePct);
     return { moneyIn, out, left: moneyIn - out };
   });
 }
